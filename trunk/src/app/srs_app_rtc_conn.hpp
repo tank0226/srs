@@ -66,6 +66,10 @@ class SrsPithyPrint;
 class SrsStatistic;
 class SrsRtcUserConfig;
 
+#ifdef SRS_SCTP
+class SrsSctp;
+#endif
+
 const uint8_t kSR   = 200;
 const uint8_t kRR   = 201;
 const uint8_t kSDES = 202;
@@ -117,6 +121,9 @@ private:
     SrsRtcConnection* session_;
     SrsDtls* dtls_;
     SrsSRTP* srtp_;
+#ifdef SRS_SCTP
+    SrsSctp* sctp_;
+#endif
     bool handshake_done;
 public:
     SrsSecurityTransport(SrsRtcConnection* s);
