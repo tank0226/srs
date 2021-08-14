@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
+      - run: |
+          echo "AK is ${{ secrets.ACCESS_KEY_ID }}"
+        shell: bash
       - uses: actions/checkout@v2
       - uses: aliyun/acr-login@v1
         with:
@@ -18,12 +21,13 @@ jobs:
           access-key-id: "${{ secrets.ACCESS_KEY_ID }}"
           access-key-secret: "${{ secrets.ACCESS_KEY_SECRET }}"
       - run: |
-          echo "Release ossrs/srs:${{ github.ref }}"
-          docker build --tag ossrs/srs:${{ github.ref }} -f trunk/Dockerfile
-          docker push ossrs/srs:${{ github.ref }}
-          echo "Release registry.cn-hangzhou.aliyuncs.com/ossrs/srs:${{ github.ref }}"
-          docker tag ossrs/srs:${{ github.ref }} registry.cn-hangzhou.aliyuncs.com/ossrs/srs:${{ github.ref }}
-          docker push registry.cn-hangzhou.aliyuncs.com/ossrs/srs:${{ github.ref }}
+          TAG=$(echo ${{ github.ref }}|awk -F '/' '{print $3}')
+          echo "Release ossrs/srs:$TAG"
+          docker build --tag ossrs/srs:$TAG -f trunk/Dockerfile
+          docker push ossrs/srs:$TAG
+          echo "Release registry.cn-hangzhou.aliyuncs.com/ossrs/srs:$TAG"
+          docker tag ossrs/srs:$TAG registry.cn-hangzhou.aliyuncs.com/ossrs/srs:$TAG
+          docker push registry.cn-hangzhou.aliyuncs.com/ossrs/srs:$TAG
         shell: bash
 
   k8s:
