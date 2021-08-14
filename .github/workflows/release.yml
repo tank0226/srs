@@ -11,25 +11,21 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
-      - shell: bash
-        env:
-          ACCESS_KEY_ID: ${{ secrets.ACCESS_KEY_ID }}
-        run: echo "AK is $ACCESS_KEY_ID"
       - uses: actions/checkout@v2
       - uses: aliyun/acr-login@v1
         with:
-          region-id: "cn-hangzhou"
-          access-key-id: "${{ secrets.ACCESS_KEY_ID }}"
-          access-key-secret: "${{ secrets.ACCESS_KEY_SECRET }}"
-      - run: |
+          login-server: https://registry.cn-hangzhou.aliyuncs.com
+          username: "${{ secrets.REGISTRY_USERNAME }}"
+          password: "${{ secrets.REGISTRY_PASSWORD }}"
+          #region-id: "cn-hangzhou"
+          #access-key-id: "${{ secrets.ACCESS_KEY_ID }}"
+          #access-key-secret: "${{ secrets.ACCESS_KEY_SECRET }}"
+      - shell: bash
+        run: |
           TAG=$(echo ${{ github.ref }}|awk -F '/' '{print $3}')
-          echo "Release ossrs/srs:$TAG"
-          docker build --tag ossrs/srs:$TAG -f trunk/Dockerfile
-          docker push ossrs/srs:$TAG
           echo "Release registry.cn-hangzhou.aliyuncs.com/ossrs/srs:$TAG"
-          docker tag ossrs/srs:$TAG registry.cn-hangzhou.aliyuncs.com/ossrs/srs:$TAG
+          docker build --tag registry.cn-hangzhou.aliyuncs.com/ossrs/srs:$TAG -f trunk/Dockerfile
           docker push registry.cn-hangzhou.aliyuncs.com/ossrs/srs:$TAG
-        shell: bash
 
   k8s:
     name: release-k8s
