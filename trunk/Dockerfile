@@ -4,11 +4,13 @@ FROM ossrs/srs:dev AS build
 RUN yum install -y gcc make gcc-c++ patch unzip perl git
 
 # Build and install SRS.
-RUN ./configure --srt=on && make && make install
+COPY . /trunk
+WORKDIR /trunk
+RUN ./configure --srt=on --jobs=10 && make && make install
 
-# Copy all config files for SRS.
-COPY conf /usr/local/srs/conf
-# Copy the default index.html and srs-console.
+# All config files for SRS.
+RUN cp -R conf /usr/local/srs/conf
+# The default index.html and srs-console.
 RUN cp research/api-server/static-dir/index.html /usr/local/srs/objs/nginx/html/
 RUN cp research/api-server/static-dir/favicon.ico /usr/local/srs/objs/nginx/html/
 RUN cp research/players/crossdomain.xml /usr/local/srs/objs/nginx/html/
@@ -28,8 +30,6 @@ EXPOSE 1935 1985 8080 8000/udp 10080/udp
 COPY --from=build /usr/local/bin/ffmpeg /usr/local/srs/objs/ffmpeg/bin/ffmpeg
 # SRS binary, config files and srs-console.
 COPY --from=build /usr/local/srs /usr/local/srs
-# Use docker.conf as default config.
-COPY conf/docker.conf /usr/local/srs/conf/srs.conf
 
 # Default workdir and command.
 WORKDIR /usr/local/srs
