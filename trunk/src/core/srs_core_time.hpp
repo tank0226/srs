@@ -1,33 +1,20 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_CORE_TIME_HPP
 #define SRS_CORE_TIME_HPP
 
-#include <srs_core.hpp>
-
 // Time and duration unit, in us.
+#if defined(_WIN32) && !defined(__MINGW32__) && (!defined(_MSC_VER) || _MSC_VER<1600) && !defined(__WINE__)
+#include <BaseTsd.h>
+typedef __int64 srs_utime_t;
+#else
+#include <stdint.h>
 typedef int64_t srs_utime_t;
+#endif
 
 // The time unit in ms, for example 100 * SRS_UTIME_MILLISECONDS means 100ms.
 #define SRS_UTIME_MILLISECONDS 1000
@@ -36,10 +23,14 @@ typedef int64_t srs_utime_t;
 #define srsu2ms(us) ((us) / SRS_UTIME_MILLISECONDS)
 #define srsu2msi(us) int((us) / SRS_UTIME_MILLISECONDS)
 
+// Convert srs_utime_t as second.
+#define srsu2s(us) ((us) / SRS_UTIME_SECONDS)
+#define srsu2si(us) int((us) / SRS_UTIME_SECONDS)
+
 // Them time duration = end - start. return 0, if start or end is 0.
 srs_utime_t srs_duration(srs_utime_t start, srs_utime_t end);
 
-// The time unit in ms, for example 120 * SRS_UTIME_SECONDS means 120s.
+// The time unit in seconds, for example 120 * SRS_UTIME_SECONDS means 120s.
 #define SRS_UTIME_SECONDS 1000000LL
 
 // The time unit in minutes, for example 3 * SRS_UTIME_MINUTES means 3m.

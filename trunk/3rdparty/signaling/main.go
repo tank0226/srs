@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 //
-// Copyright (c) 2021 Winlin
+// Copyright (c) 2025 Winlin
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the "Software"), to deal in
@@ -176,6 +176,10 @@ func main() {
 	logger.Tf(ctx, "Signaling ok, root=%v, home page is %v", html, home)
 
 	http.Handle("/", http.FileServer(http.Dir(html)))
+
+	http.Handle("/sig/v1/versions", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("1.0"))
+	}))
 
 	// Key is name of room, value is Room
 	var rooms sync.Map

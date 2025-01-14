@@ -1,29 +1,11 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_st.hpp>
 
-#include <st.h>
 #include <string>
 using namespace std;
 
@@ -45,6 +27,30 @@ ISrsStartable::ISrsStartable()
 }
 
 ISrsStartable::~ISrsStartable()
+{
+}
+
+ISrsInterruptable::ISrsInterruptable()
+{
+}
+
+ISrsInterruptable::~ISrsInterruptable()
+{
+}
+
+ISrsContextIdSetter::ISrsContextIdSetter()
+{
+}
+
+ISrsContextIdSetter::~ISrsContextIdSetter()
+{
+}
+
+ISrsContextIdGetter::ISrsContextIdGetter()
+{
+}
+
+ISrsContextIdGetter::~ISrsContextIdGetter()
 {
 }
 
@@ -84,7 +90,12 @@ srs_error_t SrsDummyCoroutine::pull()
 
 const SrsContextId& SrsDummyCoroutine::cid()
 {
-    return _srs_context->get_id();
+    return cid_;
+}
+
+void SrsDummyCoroutine::set_cid(const SrsContextId& cid)
+{
+    cid_ = cid;
 }
 
 SrsSTCoroutine::SrsSTCoroutine(string n, ISrsCoroutineHandler* h)
@@ -132,7 +143,10 @@ const SrsContextId& SrsSTCoroutine::cid()
     return impl_->cid();
 }
 
-_ST_THREAD_CREATE_PFN _pfn_st_thread_create = (_ST_THREAD_CREATE_PFN)st_thread_create;
+void SrsSTCoroutine::set_cid(const SrsContextId& cid)
+{
+    impl_->set_cid(cid);
+}
 
 SrsFastCoroutine::SrsFastCoroutine(string n, ISrsCoroutineHandler* h)
 {
@@ -142,6 +156,7 @@ SrsFastCoroutine::SrsFastCoroutine(string n, ISrsCoroutineHandler* h)
     trd = NULL;
     trd_err = srs_success;
     started = interrupted = disposed = cycle_done = false;
+    stopping_ = false;
 
     //  0 use default, default is 64K.
     stack_size = 0;
@@ -155,6 +170,7 @@ SrsFastCoroutine::SrsFastCoroutine(string n, ISrsCoroutineHandler* h, SrsContext
     trd = NULL;
     trd_err = srs_success;
     started = interrupted = disposed = cycle_done = false;
+    stopping_ = false;
 
     //  0 use default, default is 64K.
     stack_size = 0;
@@ -209,17 +225,31 @@ srs_error_t SrsFastCoroutine::start()
 void SrsFastCoroutine::stop()
 {
     if (disposed) {
+        if (stopping_) {
+            srs_error("thread is stopping by %s", stopping_cid_.c_str());
+            srs_assert(!stopping_);
+        }
         return;
     }
     disposed = true;
+    stopping_ = true;
     
     interrupt();
 
     // When not started, the trd is NULL.
     if (trd) {
         void* res = NULL;
-        int r0 = st_thread_join((st_thread_t)trd, &res);
-        srs_assert(!r0);
+        int r0 = srs_thread_join(trd, &res);
+        if (r0) {
+            // By st_thread_join
+            if (errno == EINVAL) srs_assert(!r0);
+            if (errno == EDEADLK) srs_assert(!r0);
+            // By st_cond_timedwait
+            if (errno == EINTR) srs_assert(!r0);
+            if (errno == ETIME) srs_assert(!r0);
+            // Others
+            srs_assert(!r0);
+        }
 
         srs_error_t err_res = (srs_error_t)res;
         if (err_res != srs_success) {
@@ -233,6 +263,9 @@ void SrsFastCoroutine::stop()
     if (trd_err == srs_success && !cycle_done) {
         trd_err = srs_error_new(ERROR_THREAD_TERMINATED, "terminated");
     }
+
+    // Now, we'are stopped.
+    stopping_ = false;
     
     return;
 }
@@ -250,12 +283,18 @@ void SrsFastCoroutine::interrupt()
 
     // Note that if another thread is stopping thread and waiting in st_thread_join,
     // the interrupt will make the st_thread_join fail.
-    st_thread_interrupt((st_thread_t)trd);
+    srs_thread_interrupt(trd);
 }
 
 const SrsContextId& SrsFastCoroutine::cid()
 {
     return cid_;
+}
+
+void SrsFastCoroutine::set_cid(const SrsContextId& cid)
+{
+    cid_ = cid;
+    srs_context_set_cid_of(trd, cid);
 }
 
 srs_error_t SrsFastCoroutine::cycle()
@@ -293,5 +332,108 @@ void* SrsFastCoroutine::pfn(void* arg)
     }
 
     return (void*)err;
+}
+
+SrsWaitGroup::SrsWaitGroup()
+{
+    nn_ = 0;
+    done_ = srs_cond_new();
+}
+
+SrsWaitGroup::~SrsWaitGroup()
+{
+    // In the destructor, we should NOT wait for all coroutines to be done, because user should decide
+    // to wait or not. Similar to the Go's sync.WaitGroup, it also requires user to wait explicitly. For
+    // some special use scenarios, such as error handling, for example, if we started three servers with
+    // wait group, and one of them failed, user may want to return error and quit directly, without wait
+    // for other running servers to be done. If we wait in the destructor, it will continue to run without
+    // some servers, in unknown behaviors.
+    srs_cond_destroy(done_);
+}
+
+void SrsWaitGroup::add(int n)
+{
+    nn_ += n;
+}
+
+void SrsWaitGroup::done()
+{
+    nn_--;
+    if (nn_ <= 0) {
+        srs_cond_signal(done_);
+    }
+}
+
+void SrsWaitGroup::wait()
+{
+    if (nn_ > 0) {
+        srs_cond_wait(done_);
+    }
+}
+
+ISrsExecutorHandler::ISrsExecutorHandler()
+{
+}
+
+ISrsExecutorHandler::~ISrsExecutorHandler()
+{
+}
+
+SrsExecutorCoroutine::SrsExecutorCoroutine(ISrsResourceManager* m, ISrsResource* r, ISrsCoroutineHandler* h, ISrsExecutorHandler* cb)
+{
+    resource_ = r;
+    handler_ = h;
+    manager_ = m;
+    callback_ = cb;
+    trd_ = new SrsSTCoroutine("ar", this, resource_->get_id());
+}
+
+SrsExecutorCoroutine::~SrsExecutorCoroutine()
+{
+    manager_->remove(resource_);
+    srs_freep(trd_);
+}
+
+srs_error_t SrsExecutorCoroutine::start()
+{
+    return trd_->start();
+}
+
+void SrsExecutorCoroutine::interrupt()
+{
+    trd_->interrupt();
+}
+
+srs_error_t SrsExecutorCoroutine::pull()
+{
+    return trd_->pull();
+}
+
+const SrsContextId& SrsExecutorCoroutine::cid()
+{
+    return trd_->cid();
+}
+
+void SrsExecutorCoroutine::set_cid(const SrsContextId& cid)
+{
+    trd_->set_cid(cid);
+}
+
+srs_error_t SrsExecutorCoroutine::cycle()
+{
+    srs_error_t err = handler_->cycle();
+    if (callback_) callback_->on_executor_done(this);
+    manager_->remove(this);
+    return err;
+}
+
+const SrsContextId& SrsExecutorCoroutine::get_id()
+{
+    return resource_->get_id();
+}
+
+std::string SrsExecutorCoroutine::desc()
+{
+    return resource_->desc();
 }
 

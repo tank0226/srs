@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_coworkers.hpp>
 
@@ -28,10 +11,10 @@ using namespace std;
 
 #include <srs_protocol_json.hpp>
 #include <srs_kernel_error.hpp>
-#include <srs_rtmp_stack.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
 #include <srs_app_config.hpp>
 #include <srs_protocol_utility.hpp>
-#include <srs_service_utility.hpp>
+#include <srs_protocol_utility.hpp>
 #include <srs_kernel_utility.hpp>
 
 SrsCoWorkers* SrsCoWorkers::_instance = NULL;
@@ -139,7 +122,7 @@ SrsRequest* SrsCoWorkers::find_stream_info(string vhost, string app, string stre
     return it->second;
 }
 
-srs_error_t SrsCoWorkers::on_publish(SrsSource* s, SrsRequest* r)
+srs_error_t SrsCoWorkers::on_publish(SrsRequest* r)
 {
     srs_error_t err = srs_success;
     
@@ -157,7 +140,7 @@ srs_error_t SrsCoWorkers::on_publish(SrsSource* s, SrsRequest* r)
     return err;
 }
 
-void SrsCoWorkers::on_unpublish(SrsSource* s, SrsRequest* r)
+void SrsCoWorkers::on_unpublish(SrsRequest* r)
 {
     string url = r->get_stream_url();
     

@@ -1,27 +1,12 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_core.hpp>
+
+#include <srs_kernel_error.hpp>
 
 // LCOV_EXCL_START
 /* vim: set et ts=3 sw=3 sts=3 ft=c:
@@ -582,7 +567,8 @@ json_value * json_parse_ex (json_settings * settings,
             if (flags & flag_string)
             {
                 if (!b)
-                {  sprintf (error, "Unexpected EOF in string (at %d:%d)", line_and_col);
+                {
+                    snprintf(error, json_error_max, "Unexpected EOF in string (at %d:%d)", line_and_col);
                     goto e_failed;
                 }
                 
@@ -608,7 +594,7 @@ json_value * json_parse_ex (json_settings * settings,
                                 (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
                                 (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
                             {
-                                sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+                                snprintf(error, json_error_max, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
                                 goto e_failed;
                             }
                             
@@ -625,7 +611,7 @@ json_value * json_parse_ex (json_settings * settings,
                                     (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
                                     (uc_b4 = hex_value (*++ state.ptr)) == 0xFF)
                                 {
-                                    sprintf (error, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
+                                    snprintf(error, json_error_max, "Invalid character value `%c` (at %d:%d)", b, line_and_col);
                                     goto e_failed;
                                 }
                                 
@@ -754,7 +740,8 @@ json_value * json_parse_ex (json_settings * settings,
                     if (flags & flag_block_comment)
                     {
                         if (!b)
-                        {  sprintf (error, "%d:%d: Unexpected EOF in block comment", line_and_col);
+                        {
+                            snprintf(error, json_error_max, "%d:%d: Unexpected EOF in block comment", line_and_col);
                             goto e_failed;
                         }
                         
@@ -770,12 +757,14 @@ json_value * json_parse_ex (json_settings * settings,
                 else if (b == '/')
                 {
                     if (! (flags & (flag_seek_value | flag_done)) && top->type != json_object)
-                    {  sprintf (error, "%d:%d: Comment not allowed here", line_and_col);
+                    {
+                        snprintf(error, json_error_max, "%d:%d: Comment not allowed here", line_and_col);
                         goto e_failed;
                     }
                     
                     if (++ state.ptr == end)
-                    {  sprintf (error, "%d:%d: EOF unexpected", line_and_col);
+                    {
+                        snprintf(error, json_error_max, "%d:%d: EOF unexpected", line_and_col);
                         goto e_failed;
                     }
                     
@@ -790,7 +779,7 @@ json_value * json_parse_ex (json_settings * settings,
                             continue;
                             
                         default:
-                            sprintf (error, "%d:%d: Unexpected `%c` in comment opening sequence", line_and_col, b);
+                            snprintf(error, json_error_max, "%d:%d: Unexpected `%c` in comment opening sequence", line_and_col, b);
                             goto e_failed;
                     };
                 }
@@ -808,7 +797,7 @@ json_value * json_parse_ex (json_settings * settings,
                         
                     default:
                         
-                        sprintf (error, "%d:%d: Trailing garbage: `%c`",
+                        snprintf(error, json_error_max, "%d:%d: Trailing garbage: `%c`",
                                  state.cur_line, state.cur_col, b);
                         
                         goto e_failed;
@@ -827,7 +816,8 @@ json_value * json_parse_ex (json_settings * settings,
                         if (top && top->type == json_array)
                             flags = (flags & ~ (flag_need_comma | flag_seek_value)) | flag_next;
                         else
-                        {  sprintf (error, "%d:%d: Unexpected ]", line_and_col);
+                        {
+                            snprintf(error, json_error_max, "%d:%d: Unexpected ]", line_and_col);
                             goto e_failed;
                         }
                         
@@ -843,7 +833,7 @@ json_value * json_parse_ex (json_settings * settings,
                             }
                             else
                             {
-                                sprintf (error, "%d:%d: Expected , before %c",
+                                snprintf(error, json_error_max, "%d:%d: Expected , before %c",
                                          state.cur_line, state.cur_col, b);
                                 
                                 goto e_failed;
@@ -858,7 +848,7 @@ json_value * json_parse_ex (json_settings * settings,
                             }
                             else
                             {
-                                sprintf (error, "%d:%d: Expected : before %c",
+                                snprintf(error, json_error_max, "%d:%d: Expected : before %c",
                                          state.cur_line, state.cur_col, b);
                                 
                                 goto e_failed;
@@ -984,7 +974,8 @@ json_value * json_parse_ex (json_settings * settings,
                                 continue;
                             }
                             else
-                            {  sprintf (error, "%d:%d: Unexpected %c when seeking value", line_and_col, b);
+                            {
+                                snprintf(error, json_error_max, "%d:%d: Unexpected %c when seeking value", line_and_col, b);
                                 goto e_failed;
                             }
                     };
@@ -1004,7 +995,8 @@ json_value * json_parse_ex (json_settings * settings,
                         case '"':
                             
                             if (flags & flag_need_comma)
-                            {  sprintf (error, "%d:%d: Expected , before \"", line_and_col);
+                            {
+                                snprintf(error, json_error_max, "%d:%d: Expected , before \"", line_and_col);
                                 goto e_failed;
                             }
                             
@@ -1029,7 +1021,7 @@ json_value * json_parse_ex (json_settings * settings,
                             }
                             
                         default:
-                            sprintf (error, "%d:%d: Unexpected `%c` in object", line_and_col, b);
+                            snprintf(error, json_error_max, "%d:%d: Unexpected `%c` in object", line_and_col, b);
                             goto e_failed;
                     };
                         
@@ -1047,7 +1039,8 @@ json_value * json_parse_ex (json_settings * settings,
                                 if (! (flags & flag_num_e))
                                 {
                                     if (flags & flag_num_zero)
-                                    {  sprintf (error, "%d:%d: Unexpected `0` before `%c`", line_and_col, b);
+                                    {
+                                        snprintf(error, json_error_max, "%d:%d: Unexpected `0` before `%c`", line_and_col, b);
                                         goto e_failed;
                                     }
                                     
@@ -1084,7 +1077,8 @@ json_value * json_parse_ex (json_settings * settings,
                         else if (b == '.' && top->type == json_integer)
                         {
                             if (!num_digits)
-                            {  sprintf (error, "%d:%d: Expected digit before `.`", line_and_col);
+                            {
+                                snprintf(error, json_error_max, "%d:%d: Expected digit before `.`", line_and_col);
                                 goto e_failed;
                             }
                             
@@ -1100,7 +1094,8 @@ json_value * json_parse_ex (json_settings * settings,
                             if (top->type == json_double)
                             {
                                 if (!num_digits)
-                                {  sprintf (error, "%d:%d: Expected digit after `.`", line_and_col);
+                                {
+                                    snprintf(error, json_error_max, "%d:%d: Expected digit after `.`", line_and_col);
                                     goto e_failed;
                                 }
                                 
@@ -1126,7 +1121,8 @@ json_value * json_parse_ex (json_settings * settings,
                         else
                         {
                             if (!num_digits)
-                            {  sprintf (error, "%d:%d: Expected digit after `e`", line_and_col);
+                            {
+                                snprintf(error, json_error_max, "%d:%d: Expected digit after `e`", line_and_col);
                                 goto e_failed;
                             }
                             
@@ -1211,8 +1207,8 @@ json_value * json_parse_ex (json_settings * settings,
     return root;
     
 e_unknown_value:
-    
-    sprintf (error, "%d:%d: Unknown value", line_and_col);
+
+    snprintf(error, json_error_max, "%d:%d: Unknown value", line_and_col);
     goto e_failed;
     
 e_alloc_failure:
@@ -1221,8 +1217,8 @@ e_alloc_failure:
     goto e_failed;
     
 e_overflow:
-    
-    sprintf (error, "%d:%d: Too long (caught overflow)", line_and_col);
+
+    snprintf(error, json_error_max, "%d:%d: Too long (caught overflow)", line_and_col);
     goto e_failed;
     
 e_failed:
@@ -1317,28 +1313,11 @@ void json_value_free (json_value * value)
 #endif
 // LCOV_EXCL_STOP
 
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_protocol_json.hpp>
 
@@ -1572,16 +1551,30 @@ SrsJsonArray* SrsJsonAny::to_array()
     return p;
 }
 
-string escape(string v)
+// @see https://github.com/ossrs/srs/pull/1758/files#diff-9568479ef5cb0aa1ade2381e11e9c066c01bf9c4bbed70ffa27094d08bb27380R370
+// @see https://github.com/json-parser/json-builder/blob/2d8c6671926d104c5dcd43ccd2b1431a3f0299e0/json-builder.c#L495
+string json_serialize_string(const string& v)
 {
     stringstream ss;
 
-    for (int i = 0; i < (int)v.length(); i++) {
-        if (v.at(i) == '"') {
-            ss << '\\';
+    ss << "\"";
+
+    const char* start = v.data();
+    const char* end = start + v.length();
+    for (const char* p = start; p < end; ++p) {
+        switch (*p) {
+            case '"': ss << '\\' << '"'; break;
+            case '\\': ss << '\\' << '\\'; break;
+            case '\b': ss << '\\' << 'b'; break;
+            case '\f': ss << '\\' << 'f'; break;
+            case '\n': ss << '\\' << 'n'; break;
+            case '\r': ss << '\\' << 'r'; break;
+            case '\t': ss << '\\' << 't'; break;
+            default: ss << *p;
         }
-        ss << v.at(i);
     }
+
+    ss << "\"";
 
     return ss.str();
 }
@@ -1590,7 +1583,9 @@ string SrsJsonAny::dumps()
 {
     switch (marker) {
         case SRS_JSON_String: {
-            return "\"" + escape(to_str()) + "\"";
+            SrsJsonString* p = dynamic_cast<SrsJsonString*>(this);
+            srs_assert(p != NULL);
+            return json_serialize_string(p->value);
         }
         case SRS_JSON_Boolean: {
             return to_boolean()? "true" : "false";
@@ -1600,8 +1595,8 @@ string SrsJsonAny::dumps()
         }
         case SRS_JSON_Number: {
             // len(max int64_t) is 20, plus one "+-."
-            char tmp[22];
-            snprintf(tmp, 22, "%.2f", to_number());
+            char tmp[21 + 1];
+            snprintf(tmp, sizeof(tmp), "%.2f", to_number());
             return tmp;
         }
         case SRS_JSON_Null: {
@@ -1844,7 +1839,7 @@ SrsJsonObject* SrsJsonObject::set(string key, SrsJsonAny* value)
         
         if (key == name) {
             srs_freep(any);
-            properties.erase(it);
+            it = properties.erase(it);
             break;
         }
     }

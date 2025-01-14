@@ -1,25 +1,8 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2013-2021 Winlin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 #include <srs_utest_mp4.hpp>
 
 #include <sstream>
@@ -1339,7 +1322,7 @@ VOID TEST(KernelMp4Test, SampleDescBox)
         SrsBuffer b(buf, sizeof(buf));
 
         if (true) {
-            SrsMp4VisualSampleEntry box;
+            SrsMp4VisualSampleEntry box = SrsMp4VisualSampleEntry(SrsMp4BoxTypeAVC1);
             box.data_reference_index = 1;
             EXPECT_EQ((int)sizeof(buf), (int)box.nb_bytes());
             HELPER_EXPECT_SUCCESS(box.encode(&b));
@@ -1354,7 +1337,7 @@ VOID TEST(KernelMp4Test, SampleDescBox)
 
         if (true) {
             b.skip(-1 * b.pos());
-            SrsMp4VisualSampleEntry box;
+            SrsMp4VisualSampleEntry box = SrsMp4VisualSampleEntry(SrsMp4BoxTypeAVC1);
             HELPER_EXPECT_SUCCESS(box.decode(&b));
         }
     }
@@ -1379,6 +1362,55 @@ VOID TEST(KernelMp4Test, SampleDescBox)
         if (true) {
             b.skip(-1 * b.pos());
             SrsMp4AvccBox box;
+            HELPER_EXPECT_SUCCESS(box.decode(&b));
+        }
+    }
+
+    if (true) {
+        char buf[8+8+70];
+        SrsBuffer b(buf, sizeof(buf));
+
+        if (true) {
+            SrsMp4VisualSampleEntry box = SrsMp4VisualSampleEntry(SrsMp4BoxTypeHEV1);
+            box.data_reference_index = 1;
+            EXPECT_EQ((int)sizeof(buf), (int)box.nb_bytes());
+            HELPER_EXPECT_SUCCESS(box.encode(&b));
+
+            stringstream ss;
+            SrsMp4DumpContext dc;
+            box.dumps(ss, dc);
+
+            string v = ss.str();
+            EXPECT_STREQ("hev1, 86B, refs#1, size=0x0\n", v.c_str());
+        }
+
+        if (true) {
+            b.skip(-1 * b.pos());
+            SrsMp4VisualSampleEntry box = SrsMp4VisualSampleEntry(SrsMp4BoxTypeHEV1);
+            HELPER_EXPECT_SUCCESS(box.decode(&b));
+        }
+    }
+
+    if (true) {
+        char buf[8];
+        SrsBuffer b(buf, sizeof(buf));
+
+        if (true) {
+            SrsMp4HvcCBox box;
+            EXPECT_EQ((int)sizeof(buf), (int)box.nb_bytes());
+            HELPER_EXPECT_SUCCESS(box.encode(&b));
+
+            stringstream ss;
+            SrsMp4DumpContext dc;
+            box.dumps(ss, dc);
+
+            string v = ss.str();
+            EXPECT_STREQ("hvcC, 8B, HEVC Config: 0B\n    \n", v.c_str());
+        }
+
+        if (true) {
+            b.skip(-1 * b.pos());
+            SrsMp4HvcCBox box;
             HELPER_EXPECT_SUCCESS(box.decode(&b));
         }
     }

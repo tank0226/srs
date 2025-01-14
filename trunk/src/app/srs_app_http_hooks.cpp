@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_http_hooks.hpp>
 
@@ -27,7 +10,7 @@
 using namespace std;
 
 #include <srs_kernel_error.hpp>
-#include <srs_rtmp_stack.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
 #include <srs_app_st.hpp>
 #include <srs_protocol_json.hpp>
 #include <srs_app_dvr.hpp>
@@ -38,8 +21,10 @@ using namespace std;
 #include <srs_app_http_conn.hpp>
 #include <srs_protocol_amf0.hpp>
 #include <srs_app_utility.hpp>
+#include <srs_app_statistic.hpp>
 
-#define SRS_HTTP_RESPONSE_OK    SRS_XSTR(ERROR_SUCCESS)
+// The HTTP response body should be "0", see https://github.com/ossrs/srs/issues/3215#issuecomment-1319991512
+#define SRS_HTTP_RESPONSE_OK SRS_XSTR(0)
 
 #define SRS_HTTP_HEADER_BUFFER 1024
 #define SRS_HTTP_READ_BUFFER 4096
@@ -61,15 +46,18 @@ srs_error_t SrsHttpHooks::on_connect(string url, SrsRequest* req)
     srs_error_t err = srs_success;
     
     SrsContextId cid = _srs_context->get_id();
-    
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
-    
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
+
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_connect"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
     obj->set("vhost", SrsJsonAny::str(req->vhost.c_str()));
     obj->set("app", SrsJsonAny::str(req->app.c_str()));
+    obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
+    obj->set("param", SrsJsonAny::str(req->param.c_str()));
     obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
     obj->set("pageUrl", SrsJsonAny::str(req->pageUrl.c_str()));
     
@@ -94,10 +82,11 @@ void SrsHttpHooks::on_close(string url, SrsRequest* req, int64_t send_bytes, int
     srs_error_t err = srs_success;
     
     SrsContextId cid = _srs_context->get_id();
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
     
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
-    
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_close"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
@@ -130,10 +119,11 @@ srs_error_t SrsHttpHooks::on_publish(string url, SrsRequest* req)
     srs_error_t err = srs_success;
     
     SrsContextId cid = _srs_context->get_id();
-    
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
-    
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
+
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_publish"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
@@ -142,6 +132,12 @@ srs_error_t SrsHttpHooks::on_publish(string url, SrsRequest* req)
     obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
     obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
     obj->set("param", SrsJsonAny::str(req->param.c_str()));
+
+    obj->set("stream_url", SrsJsonAny::str(req->get_stream_url().c_str()));
+    SrsStatisticStream* stream = stat->find_stream_by_url(req->get_stream_url());
+    if (stream) {
+        obj->set("stream_id", SrsJsonAny::str(stream->id.c_str()));
+    }
     
     std::string data = obj->dumps();
     std::string res;
@@ -164,17 +160,25 @@ void SrsHttpHooks::on_unpublish(string url, SrsRequest* req)
     srs_error_t err = srs_success;
     
     SrsContextId cid = _srs_context->get_id();
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
     
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
-    
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_unpublish"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
     obj->set("vhost", SrsJsonAny::str(req->vhost.c_str()));
     obj->set("app", SrsJsonAny::str(req->app.c_str()));
+    obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
     obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
     obj->set("param", SrsJsonAny::str(req->param.c_str()));
+
+    obj->set("stream_url", SrsJsonAny::str(req->get_stream_url().c_str()));
+    SrsStatisticStream* stream = stat->find_stream_by_url(req->get_stream_url());
+    if (stream) {
+        obj->set("stream_id", SrsJsonAny::str(stream->id.c_str()));
+    }
     
     std::string data = obj->dumps();
     std::string res;
@@ -200,18 +204,26 @@ srs_error_t SrsHttpHooks::on_play(string url, SrsRequest* req)
     srs_error_t err = srs_success;
     
     SrsContextId cid = _srs_context->get_id();
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
     
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
-    
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_play"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
     obj->set("vhost", SrsJsonAny::str(req->vhost.c_str()));
     obj->set("app", SrsJsonAny::str(req->app.c_str()));
     obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
+    obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
     obj->set("param", SrsJsonAny::str(req->param.c_str()));
     obj->set("pageUrl", SrsJsonAny::str(req->pageUrl.c_str()));
+
+    obj->set("stream_url", SrsJsonAny::str(req->get_stream_url().c_str()));
+    SrsStatisticStream* stream = stat->find_stream_by_url(req->get_stream_url());
+    if (stream) {
+        obj->set("stream_id", SrsJsonAny::str(stream->id.c_str()));
+    }
     
     std::string data = obj->dumps();
     std::string res;
@@ -234,17 +246,25 @@ void SrsHttpHooks::on_stop(string url, SrsRequest* req)
     srs_error_t err = srs_success;
     
     SrsContextId cid = _srs_context->get_id();
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
     
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
-    
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_stop"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
     obj->set("vhost", SrsJsonAny::str(req->vhost.c_str()));
     obj->set("app", SrsJsonAny::str(req->app.c_str()));
+    obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
     obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
     obj->set("param", SrsJsonAny::str(req->param.c_str()));
+
+    obj->set("stream_url", SrsJsonAny::str(req->get_stream_url().c_str()));
+    SrsStatisticStream* stream = stat->find_stream_by_url(req->get_stream_url());
+    if (stream) {
+        obj->set("stream_id", SrsJsonAny::str(stream->id.c_str()));
+    }
     
     std::string data = obj->dumps();
     std::string res;
@@ -272,18 +292,27 @@ srs_error_t SrsHttpHooks::on_dvr(SrsContextId c, string url, SrsRequest* req, st
     SrsContextId cid = c;
     std::string cwd = _srs_config->cwd();
     
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
     
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_dvr"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
     obj->set("vhost", SrsJsonAny::str(req->vhost.c_str()));
     obj->set("app", SrsJsonAny::str(req->app.c_str()));
+    obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
     obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
     obj->set("param", SrsJsonAny::str(req->param.c_str()));
     obj->set("cwd", SrsJsonAny::str(cwd.c_str()));
     obj->set("file", SrsJsonAny::str(file.c_str()));
+
+    obj->set("stream_url", SrsJsonAny::str(req->get_stream_url().c_str()));
+    SrsStatisticStream* stream = stat->find_stream_by_url(req->get_stream_url());
+    if (stream) {
+        obj->set("stream_id", SrsJsonAny::str(stream->id.c_str()));
+    }
     
     std::string data = obj->dumps();
     std::string res;
@@ -314,14 +343,17 @@ srs_error_t SrsHttpHooks::on_hls(SrsContextId c, string url, SrsRequest* req, st
         ts_url = prefix + "/" + ts_url;
     }
     
-    SrsJsonObject* obj = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, obj);
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
     
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
     obj->set("action", SrsJsonAny::str("on_hls"));
     obj->set("client_id", SrsJsonAny::str(cid.c_str()));
     obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
     obj->set("vhost", SrsJsonAny::str(req->vhost.c_str()));
     obj->set("app", SrsJsonAny::str(req->app.c_str()));
+    obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
     obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
     obj->set("param", SrsJsonAny::str(req->param.c_str()));
     obj->set("duration", SrsJsonAny::number(srsu2ms(duration)/1000.0));
@@ -331,6 +363,12 @@ srs_error_t SrsHttpHooks::on_hls(SrsContextId c, string url, SrsRequest* req, st
     obj->set("m3u8", SrsJsonAny::str(m3u8.c_str()));
     obj->set("m3u8_url", SrsJsonAny::str(m3u8_url.c_str()));
     obj->set("seq_no", SrsJsonAny::integer(sn));
+
+    obj->set("stream_url", SrsJsonAny::str(req->get_stream_url().c_str()));
+    SrsStatisticStream* stream = stat->find_stream_by_url(req->get_stream_url());
+    if (stream) {
+        obj->set("stream_id", SrsJsonAny::str(stream->id.c_str()));
+    }
     
     std::string data = obj->dumps();
     std::string res;
@@ -358,6 +396,10 @@ srs_error_t SrsHttpHooks::on_hls_notify(SrsContextId c, std::string url, SrsRequ
         url = ts_url;
     }
     
+    SrsStatistic* stat = SrsStatistic::instance();
+
+    url = srs_string_replace(url, "[server_id]", stat->server_id().c_str());
+    url = srs_string_replace(url, "[service_id]", stat->service_id().c_str());
     url = srs_string_replace(url, "[app]", req->app);
     url = srs_string_replace(url, "[stream]", req->stream);
     url = srs_string_replace(url, "[ts_url]", ts_url);
@@ -385,21 +427,20 @@ srs_error_t SrsHttpHooks::on_hls_notify(SrsContextId c, std::string url, SrsRequ
     }
     srs_info("GET %s", path.c_str());
     
-    ISrsHttpMessage* msg = NULL;
-    if ((err = http.get(path.c_str(), "", &msg)) != srs_success) {
+    ISrsHttpMessage* msg_raw = NULL;
+    if ((err = http.get(path.c_str(), "", &msg_raw)) != srs_success) {
         return srs_error_wrap(err, "http: get %s", url.c_str());
     }
-    SrsAutoFree(ISrsHttpMessage, msg);
-    
+    SrsUniquePtr<ISrsHttpMessage> msg(msg_raw);
+
     int nb_buf = srs_min(nb_notify, SRS_HTTP_READ_BUFFER);
-    char* buf = new char[nb_buf];
-    SrsAutoFreeA(char, buf);
-    
+    SrsUniquePtr<char[]> buf(new char[nb_buf]);
+
     int nb_read = 0;
     ISrsHttpResponseReader* br = msg->body_reader();
     while (nb_read < nb_notify && !br->eof()) {
         ssize_t nb_bytes = 0;
-        if ((err = br->read(buf, nb_buf, &nb_bytes)) != srs_success) {
+        if ((err = br->read(buf.get(), nb_buf, &nb_bytes)) != srs_success) {
             break;
         }
         nb_read += (int)nb_bytes;
@@ -426,9 +467,7 @@ srs_error_t SrsHttpHooks::discover_co_workers(string url, string& host, int& por
         return srs_error_wrap(err, "http: post %s, status=%d, res=%s", url.c_str(), status_code, res.c_str());
     }
     
-    SrsJsonObject* robj = NULL;
-    SrsAutoFree(SrsJsonObject, robj);
-    
+    SrsJsonObject* robj_raw = NULL;
     if (true) {
         SrsJsonAny* jr = NULL;
         if ((jr = SrsJsonAny::loads(res)) == NULL) {
@@ -439,9 +478,10 @@ srs_error_t SrsHttpHooks::discover_co_workers(string url, string& host, int& por
             srs_freep(jr);
             return srs_error_new(ERROR_OCLUSTER_DISCOVER, "response %s", res.c_str());
         }
-        
-        robj = jr->to_object();
+
+        robj_raw = jr->to_object();
     }
+    SrsUniquePtr<SrsJsonObject> robj(robj_raw);
     
     SrsJsonAny* prop = NULL;
     if ((prop = robj->ensure_property_object("data")) == NULL) {
@@ -469,6 +509,74 @@ srs_error_t SrsHttpHooks::discover_co_workers(string url, string& host, int& por
     return err;
 }
 
+srs_error_t SrsHttpHooks::on_forward_backend(string url, SrsRequest* req, std::vector<std::string>& rtmp_urls)
+{
+    srs_error_t err = srs_success;
+
+    SrsContextId cid = _srs_context->get_id();
+
+    SrsStatistic* stat = SrsStatistic::instance();
+    SrsUniquePtr<SrsJsonObject> obj(SrsJsonAny::object());
+
+    obj->set("action", SrsJsonAny::str("on_forward"));
+    obj->set("server_id", SrsJsonAny::str(stat->server_id().c_str()));
+    obj->set("service_id", SrsJsonAny::str(stat->service_id().c_str()));
+    obj->set("client_id", SrsJsonAny::str(cid.c_str()));
+    obj->set("ip", SrsJsonAny::str(req->ip.c_str()));
+    obj->set("vhost", SrsJsonAny::str(req->vhost.c_str()));
+    obj->set("app", SrsJsonAny::str(req->app.c_str()));
+    obj->set("tcUrl", SrsJsonAny::str(req->tcUrl.c_str()));
+    obj->set("stream", SrsJsonAny::str(req->stream.c_str()));
+    obj->set("param", SrsJsonAny::str(req->param.c_str()));
+
+    std::string data = obj->dumps();
+    std::string res;
+    int status_code;
+
+    SrsHttpClient http;
+    if ((err = do_post(&http, url, data, status_code, res)) != srs_success) {
+        return srs_error_wrap(err, "http: on_forward_backend failed, client_id=%s, url=%s, request=%s, response=%s, code=%d",
+            cid.c_str(), url.c_str(), data.c_str(), res.c_str(), status_code);
+    }
+
+    // parse string res to json.
+    SrsUniquePtr<SrsJsonAny> info(SrsJsonAny::loads(res));
+    if (!info.get()) {
+        return srs_error_new(ERROR_SYSTEM_FORWARD_LOOP, "load json from %s", res.c_str());
+    }
+
+    // response error code in string.
+    if (!info->is_object()) {
+        return srs_error_new(ERROR_SYSTEM_FORWARD_LOOP, "response %s", res.c_str());
+    }
+
+    SrsJsonAny* prop = NULL;
+    // response standard object, format in json: {}
+    SrsJsonObject* res_info = info->to_object();
+    if ((prop = res_info->ensure_property_object("data")) == NULL) {
+        return srs_error_new(ERROR_SYSTEM_FORWARD_LOOP, "parse data %s", res.c_str());
+    }
+
+    SrsJsonObject* p = prop->to_object();
+    if ((prop = p->ensure_property_array("urls")) == NULL) {
+        return srs_error_new(ERROR_SYSTEM_FORWARD_LOOP, "parse urls %s", res.c_str());
+    }
+
+    SrsJsonArray* urls = prop->to_array();
+    for (int i = 0; i < urls->count(); i++) {
+        prop = urls->at(i);
+        string rtmp_url = prop->to_str();
+        if (!rtmp_url.empty()) {
+            rtmp_urls.push_back(rtmp_url);
+        }
+    }
+
+    srs_trace("http: on_forward_backend ok, client_id=%s, url=%s, request=%s, response=%s",
+        cid.c_str(), url.c_str(), data.c_str(), res.c_str());
+
+    return err;
+}
+
 srs_error_t SrsHttpHooks::do_post(SrsHttpClient* hc, std::string url, std::string req, int& code, string& res)
 {
     srs_error_t err = srs_success;
@@ -487,19 +595,18 @@ srs_error_t SrsHttpHooks::do_post(SrsHttpClient* hc, std::string url, std::strin
         path += "?" + uri.get_query();
     }
     
-    ISrsHttpMessage* msg = NULL;
-    if ((err = hc->post(path, req, &msg)) != srs_success) {
+    ISrsHttpMessage* msg_raw = NULL;
+    if ((err = hc->post(path, req, &msg_raw)) != srs_success) {
         return srs_error_wrap(err, "http: client post");
     }
-    SrsAutoFree(ISrsHttpMessage, msg);
-    
+    SrsUniquePtr<ISrsHttpMessage> msg(msg_raw);
+
     code = msg->status_code();
     if ((err = msg->body_read_all(res)) != srs_success) {
         return srs_error_wrap(err, "http: body read");
     }
     
     // ensure the http status is ok.
-    // https://github.com/ossrs/srs/issues/158
     if (code != SRS_CONSTS_HTTP_OK && code != SRS_CONSTS_HTTP_Created) {
         return srs_error_new(ERROR_HTTP_STATUS_INVALID, "http: status %d", code);
     }
@@ -510,12 +617,11 @@ srs_error_t SrsHttpHooks::do_post(SrsHttpClient* hc, std::string url, std::strin
     }
     
     // parse string res to json.
-    SrsJsonAny* info = SrsJsonAny::loads(res);
-    if (!info) {
+    SrsUniquePtr<SrsJsonAny> info(SrsJsonAny::loads(res));
+    if (!info.get()) {
         return srs_error_new(ERROR_HTTP_DATA_INVALID, "http: not json %s", res.c_str());
     }
-    SrsAutoFree(SrsJsonAny, info);
-    
+
     // response error code in string.
     if (!info->is_object()) {
         if (res == SRS_HTTP_RESPONSE_OK) {

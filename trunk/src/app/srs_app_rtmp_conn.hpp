@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_RTMP_CONN_HPP
 #define SRS_APP_RTMP_CONN_HPP
@@ -31,16 +14,17 @@
 #include <srs_app_st.hpp>
 #include <srs_app_conn.hpp>
 #include <srs_app_reload.hpp>
-#include <srs_rtmp_stack.hpp>
-#include <srs_service_rtmp_conn.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
+#include <srs_protocol_rtmp_conn.hpp>
+#include <srs_core_autofree.hpp>
 
 class SrsServer;
 class SrsRtmpServer;
 class SrsRequest;
 class SrsResponse;
-class SrsSource;
+class SrsLiveSource;
 class SrsRefer;
-class SrsConsumer;
+class SrsLiveConsumer;
 class SrsCommonMessage;
 class SrsStSocket;
 class SrsHttpHooks;
@@ -54,6 +38,8 @@ class SrsSecurity;
 class ISrsWakable;
 class SrsCommonMessage;
 class SrsPacket;
+class SrsNetworkDelta;
+class ISrsApmSpan;
 
 // The simple rtmp client for SRS.
 class SrsSimpleRtmpClient : public SrsBasicRtmpClient
@@ -83,8 +69,8 @@ public:
 };
 
 // The client provides the main logic control for RTMP clients.
-class SrsRtmpConn : virtual public ISrsStartableConneciton, virtual public ISrsReloadHandler
-    , virtual public ISrsCoroutineHandler, virtual public ISrsExpire
+class SrsRtmpConn : public ISrsConnection, public ISrsStartable, public ISrsReloadHandler
+    , public ISrsCoroutineHandler, public ISrsExpire
 {
     // For the thread to directly access any field of connection.
     friend class SrsPublishRecvThread;
@@ -99,7 +85,6 @@ private:
     ISrsWakable* wakable;
     // The elapsed duration in srs_utime_t
     // For live play duration, for instance, rtmpdump to record.
-    // @see https://github.com/ossrs/srs/issues/47
     srs_utime_t duration;
     // The MR(merged-write) sleep time in srs_utime_t.
     srs_utime_t mw_sleep;
@@ -128,15 +113,16 @@ private:
     // The ip and port of client.
     std::string ip;
     int port;
-    // The connection total kbps.
-    // not only the rtmp or http connection, all type of connection are
-    // need to statistic the kbps of io.
-    // The SrsStatistic will use it indirectly to statistic the bytes delta of current connection.
-    SrsKbps* kbps;
-    SrsWallClock* clk;
+    // The delta for statistic.
+    SrsNetworkDelta* delta_;
+    SrsNetworkKbps* kbps;
     // The create time in milliseconds.
     // for current connection to log self create time and calculate the living time.
     int64_t create_time;
+    // The span for tracing connection establishment.
+    ISrsApmSpan* span_main_;
+    ISrsApmSpan* span_connect_;
+    ISrsApmSpan* span_client_;
 public:
     SrsRtmpConn(SrsServer* svr, srs_netfd_t c, std::string cip, int port);
     virtual ~SrsRtmpConn();
@@ -152,24 +138,23 @@ public:
     virtual srs_error_t on_reload_vhost_tcp_nodelay(std::string vhost);
     virtual srs_error_t on_reload_vhost_realtime(std::string vhost);
     virtual srs_error_t on_reload_vhost_publish(std::string vhost);
-// Interface ISrsKbpsDelta
 public:
-    virtual void remark(int64_t* in, int64_t* out);
+    virtual ISrsKbpsDelta* delta();
 private:
     // When valid and connected to vhost/app, service the client.
     virtual srs_error_t service_cycle();
     // The stream(play/publish) service cycle, identify client first.
     virtual srs_error_t stream_service_cycle();
     virtual srs_error_t check_vhost(bool try_default_vhost);
-    virtual srs_error_t playing(SrsSource* source);
-    virtual srs_error_t do_playing(SrsSource* source, SrsConsumer* consumer, SrsQueueRecvThread* trd);
-    virtual srs_error_t publishing(SrsSource* source);
-    virtual srs_error_t do_publishing(SrsSource* source, SrsPublishRecvThread* trd);
-    virtual srs_error_t acquire_publish(SrsSource* source);
-    virtual void release_publish(SrsSource* source);
-    virtual srs_error_t handle_publish_message(SrsSource* source, SrsCommonMessage* msg);
-    virtual srs_error_t process_publish_message(SrsSource* source, SrsCommonMessage* msg);
-    virtual srs_error_t process_play_control_msg(SrsConsumer* consumer, SrsCommonMessage* msg);
+    virtual srs_error_t playing(SrsSharedPtr<SrsLiveSource> source);
+    virtual srs_error_t do_playing(SrsSharedPtr<SrsLiveSource> source, SrsLiveConsumer* consumer, SrsQueueRecvThread* trd);
+    virtual srs_error_t publishing(SrsSharedPtr<SrsLiveSource> source);
+    virtual srs_error_t do_publishing(SrsSharedPtr<SrsLiveSource> source, SrsPublishRecvThread* trd);
+    virtual srs_error_t acquire_publish(SrsSharedPtr<SrsLiveSource> source);
+    virtual void release_publish(SrsSharedPtr<SrsLiveSource> source);
+    virtual srs_error_t handle_publish_message(SrsSharedPtr<SrsLiveSource>& source, SrsCommonMessage* msg);
+    virtual srs_error_t process_publish_message(SrsSharedPtr<SrsLiveSource>& source, SrsCommonMessage* msg);
+    virtual srs_error_t process_play_control_msg(SrsLiveConsumer* consumer, SrsCommonMessage* msg);
     virtual void set_sock_options();
 private:
     virtual srs_error_t check_edge_token_traverse_auth();
@@ -196,7 +181,7 @@ public:
     // when client cycle thread stop, invoke the on_thread_stop(), which will use server
     // To remove the client by server->remove(this).
     virtual srs_error_t start();
-// Interface ISrsOneCycleThreadHandler
+// Interface ISrsCoroutineHandler
 public:
     // The thread cycle function,
     // when serve connection completed, terminate the loop which will terminate the thread,

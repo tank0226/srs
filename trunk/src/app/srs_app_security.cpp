@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_security.hpp>
 
@@ -87,22 +70,37 @@ srs_error_t SrsSecurity::allow_check(SrsConfDirective* rules, SrsRtmpConnType ty
         }
         allow_rules++;
 
+        string cidr_ipv4 = srs_get_cidr_ipv4(rule->arg1());
+        string cidr_mask = srs_get_cidr_mask(rule->arg1());
+
         switch (type) {
             case SrsRtmpConnPlay:
+            case SrsHlsPlay:
+            case SrsFlvPlay:
+            case SrsRtcConnPlay: 
+            case SrsSrtConnPlay:
                 if (rule->arg0() != "play") {
                     break;
                 }
                 if (rule->arg1() == "all" || rule->arg1() == ip) {
                     return srs_success; // OK
                 }
+                if (srs_is_ipv4(cidr_ipv4) && cidr_mask != "" && srs_ipv4_within_mask(ip, cidr_ipv4, cidr_mask)) {
+                    return srs_success; // OK
+                }
                 break;
             case SrsRtmpConnFMLEPublish:
             case SrsRtmpConnFlashPublish:
             case SrsRtmpConnHaivisionPublish:
+            case SrsRtcConnPublish:
+            case SrsSrtConnPublish:
                 if (rule->arg0() != "publish") {
                     break;
                 }
                 if (rule->arg1() == "all" || rule->arg1() == ip) {
+                    return srs_success; // OK
+                }
+                if (srs_is_ipv4(cidr_ipv4) && cidr_mask != "" && srs_ipv4_within_mask(ip, cidr_ipv4, cidr_mask)) {
                     return srs_success; // OK
                 }
                 break;
@@ -126,23 +124,38 @@ srs_error_t SrsSecurity::deny_check(SrsConfDirective* rules, SrsRtmpConnType typ
         if (rule->name != "deny") {
             continue;
         }
+
+        string cidr_ipv4 = srs_get_cidr_ipv4(rule->arg1());
+        string cidr_mask = srs_get_cidr_mask(rule->arg1());
         
         switch (type) {
             case SrsRtmpConnPlay:
+            case SrsHlsPlay:
+            case SrsFlvPlay:
+            case SrsRtcConnPlay: 
+            case SrsSrtConnPlay:
                 if (rule->arg0() != "play") {
                     break;
                 }
                 if (rule->arg1() == "all" || rule->arg1() == ip) {
                     return srs_error_new(ERROR_SYSTEM_SECURITY_DENY, "deny by rule<%s>", rule->arg1().c_str());
                 }
+                if (srs_is_ipv4(cidr_ipv4) && cidr_mask != "" && srs_ipv4_within_mask(ip, cidr_ipv4, cidr_mask)) {
+                    return srs_error_new(ERROR_SYSTEM_SECURITY_DENY, "deny by rule<%s>", rule->arg1().c_str());
+                }
                 break;
             case SrsRtmpConnFMLEPublish:
             case SrsRtmpConnFlashPublish:
             case SrsRtmpConnHaivisionPublish:
+            case SrsRtcConnPublish:
+            case SrsSrtConnPublish:
                 if (rule->arg0() != "publish") {
                     break;
                 }
                 if (rule->arg1() == "all" || rule->arg1() == ip) {
+                    return srs_error_new(ERROR_SYSTEM_SECURITY_DENY, "deny by rule<%s>", rule->arg1().c_str());
+                }
+                if (srs_is_ipv4(cidr_ipv4) && cidr_mask != "" && srs_ipv4_within_mask(ip, cidr_ipv4, cidr_mask)) {
                     return srs_error_new(ERROR_SYSTEM_SECURITY_DENY, "deny by rule<%s>", rule->arg1().c_str());
                 }
                 break;

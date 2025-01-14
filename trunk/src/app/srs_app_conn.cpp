@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_conn.hpp>
 
@@ -31,11 +14,11 @@ using namespace std;
 #include <srs_kernel_error.hpp>
 #include <srs_app_utility.hpp>
 #include <srs_kernel_utility.hpp>
-#include <srs_service_log.hpp>
+#include <srs_protocol_log.hpp>
 #include <srs_app_log.hpp>
 #include <srs_app_config.hpp>
 #include <srs_core_autofree.hpp>
-
+#include <srs_kernel_buffer.hpp>
 #include <srs_protocol_kbps.hpp>
 
 SrsPps* _srs_pps_ids = NULL;
@@ -71,10 +54,17 @@ SrsResourceManager::~SrsResourceManager()
         trd->stop();
 
         srs_freep(trd);
-        srs_cond_destroy(cond);
     }
+    srs_cond_destroy(cond);
 
     clear();
+
+    // Free all objects not in zombies.
+    std::vector<ISrsResource*>::iterator it;
+    for (it = conns_.begin(); it != conns_.end(); ++it) {
+        ISrsResource* resource = *it;
+        srs_freep(resource);
+    }
 
     srs_freepa(conns_level0_cache_);
 }
@@ -132,7 +122,7 @@ void SrsResourceManager::add(ISrsResource* conn, bool* exists)
         conns_.push_back(conn);
     } else {
         if (exists) {
-            *exists = false;
+            *exists = true;
         }
     }
 }
@@ -223,7 +213,7 @@ void SrsResourceManager::subscribe(ISrsDisposingHandler* h)
     // Restore the handler from unsubscribing handlers.
     vector<ISrsDisposingHandler*>::iterator it;
     if ((it = std::find(unsubs_.begin(), unsubs_.end(), h)) != unsubs_.end()) {
-        unsubs_.erase(it);
+        it = unsubs_.erase(it);
     }
 }
 
@@ -231,7 +221,7 @@ void SrsResourceManager::unsubscribe(ISrsDisposingHandler* h)
 {
     vector<ISrsDisposingHandler*>::iterator it = find(handlers_.begin(), handlers_.end(), h);
     if (it != handlers_.end()) {
-        handlers_.erase(it);
+        it = handlers_.erase(it);
     }
 
     // Put it to the unsubscribing handlers.
@@ -402,7 +392,7 @@ void SrsResourceManager::dispose(ISrsResource* c)
 
     vector<ISrsResource*>::iterator it = std::find(conns_.begin(), conns_.end(), c);
     if (it != conns_.end()) {
-        conns_.erase(it);
+        it = conns_.erase(it);
     }
 
     // We should copy all handlers, because it may change during callback.
@@ -431,35 +421,16 @@ ISrsExpire::~ISrsExpire()
 {
 }
 
-ISrsStartableConneciton::ISrsStartableConneciton()
-{
-}
-
-ISrsStartableConneciton::~ISrsStartableConneciton()
-{
-}
-
 SrsTcpConnection::SrsTcpConnection(srs_netfd_t c)
 {
     stfd = c;
-    skt = new SrsStSocket();
+    skt = new SrsStSocket(c);
 }
 
 SrsTcpConnection::~SrsTcpConnection()
 {
     srs_freep(skt);
     srs_close_stfd(stfd);
-}
-
-srs_error_t SrsTcpConnection::initialize()
-{
-    srs_error_t err = srs_success;
-
-    if ((err = skt->initialize(stfd)) != srs_success) {
-        return srs_error_wrap(err, "init socket");
-    }
-
-    return err;
 }
 
 srs_error_t SrsTcpConnection::set_tcp_nodelay(bool v)
@@ -595,6 +566,130 @@ srs_error_t SrsTcpConnection::writev(const iovec *iov, int iov_size, ssize_t* nw
     return skt->writev(iov, iov_size, nwrite);
 }
 
+SrsBufferedReadWriter::SrsBufferedReadWriter(ISrsProtocolReadWriter* io)
+{
+    io_ = io;
+    buf_ = NULL;
+}
+
+SrsBufferedReadWriter::~SrsBufferedReadWriter()
+{
+    srs_freep(buf_);
+}
+
+srs_error_t SrsBufferedReadWriter::peek(char* buf, int* size)
+{
+    srs_error_t err = srs_success;
+
+    if ((err = reload_buffer()) != srs_success) {
+        return srs_error_wrap(err, "reload buffer");
+    }
+
+    int nn = srs_min(buf_->left(), *size);
+    *size = nn;
+
+    if (nn) {
+        memcpy(buf, buf_->head(), nn);
+    }
+
+    return err;
+}
+
+srs_error_t SrsBufferedReadWriter::reload_buffer()
+{
+    srs_error_t err = srs_success;
+
+    if (buf_ && !buf_->empty()) {
+        return err;
+    }
+
+    // We use read_fully to always full fill the cache, to avoid peeking failed.
+    ssize_t nread = 0;
+    if ((err = io_->read_fully(cache_, sizeof(cache_), &nread)) != srs_success) {
+        return srs_error_wrap(err, "read");
+    }
+
+    srs_freep(buf_);
+    buf_ = new SrsBuffer(cache_, nread);
+
+    return err;
+}
+
+srs_error_t SrsBufferedReadWriter::read(void* buf, size_t size, ssize_t* nread)
+{
+    if (!buf_ || buf_->empty()) {
+        return io_->read(buf, size, nread);
+    }
+
+    int nn = srs_min(buf_->left(), (int)size);
+    *nread = nn;
+
+    if (nn) {
+        buf_->read_bytes((char*)buf, nn);
+    }
+    return srs_success;
+}
+
+srs_error_t SrsBufferedReadWriter::read_fully(void* buf, size_t size, ssize_t* nread)
+{
+    if (!buf_ || buf_->empty()) {
+        return io_->read_fully(buf, size, nread);
+    }
+
+    int nn = srs_min(buf_->left(), (int)size);
+    if (nn) {
+        buf_->read_bytes((char*)buf, nn);
+    }
+
+    int left = size - nn;
+    *nread = size;
+
+    if (left) {
+        return io_->read_fully((char*)buf + nn, left, NULL);
+    }
+    return srs_success;
+}
+
+void SrsBufferedReadWriter::set_recv_timeout(srs_utime_t tm)
+{
+    return io_->set_recv_timeout(tm);
+}
+
+srs_utime_t SrsBufferedReadWriter::get_recv_timeout()
+{
+    return io_->get_recv_timeout();
+}
+
+int64_t SrsBufferedReadWriter::get_recv_bytes()
+{
+    return io_->get_recv_bytes();
+}
+
+int64_t SrsBufferedReadWriter::get_send_bytes()
+{
+    return io_->get_send_bytes();
+}
+
+void SrsBufferedReadWriter::set_send_timeout(srs_utime_t tm)
+{
+    return io_->set_send_timeout(tm);
+}
+
+srs_utime_t SrsBufferedReadWriter::get_send_timeout()
+{
+    return io_->get_send_timeout();
+}
+
+srs_error_t SrsBufferedReadWriter::write(void* buf, size_t size, ssize_t* nwrite)
+{
+    return io_->write(buf, size, nwrite);
+}
+
+srs_error_t SrsBufferedReadWriter::writev(const iovec *iov, int iov_size, ssize_t* nwrite)
+{
+    return io_->writev(iov, iov_size, nwrite);
+}
+
 SrsSslConnection::SrsSslConnection(ISrsProtocolReadWriter* c)
 {
     transport = c;
@@ -616,6 +711,8 @@ SrsSslConnection::~SrsSslConnection()
     }
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
 {
     srs_error_t err = srs_success;
@@ -653,7 +750,7 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
     int r0, r1, size;
 
     // Setup the key and cert file for server.
-    if ((r0 = SSL_use_certificate_file(ssl, crt_file.c_str(), SSL_FILETYPE_PEM)) != 1) {
+    if ((r0 = SSL_use_certificate_chain_file(ssl, crt_file.c_str())) != 1) {
         return srs_error_new(ERROR_HTTPS_KEY_CRT, "use cert %s", crt_file.c_str());
     }
 
@@ -679,7 +776,7 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
             return srs_error_new(ERROR_HTTPS_HANDSHAKE, "BIO_write r0=%d, data=%p, size=%d", r0, buf, nn);
         }
 
-        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0);
+        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0); ERR_clear_error();
         if (r0 != -1 || r1 != SSL_ERROR_WANT_READ) {
             return srs_error_new(ERROR_HTTPS_HANDSHAKE, "handshake r0=%d, r1=%d", r0, r1);
         }
@@ -721,7 +818,7 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
             return srs_error_new(ERROR_HTTPS_HANDSHAKE, "BIO_write r0=%d, data=%p, size=%d", r0, buf, nn);
         }
 
-        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0);
+        r0 = SSL_do_handshake(ssl); r1 = SSL_get_error(ssl, r0); ERR_clear_error();
         if (r0 == 1 && r1 == SSL_ERROR_NONE) {
             break;
         }
@@ -757,6 +854,7 @@ srs_error_t SrsSslConnection::handshake(string key_file, string crt_file)
 
     return err;
 }
+#pragma GCC diagnostic pop
 
 void SrsSslConnection::set_recv_timeout(srs_utime_t tm)
 {
@@ -788,7 +886,7 @@ srs_error_t SrsSslConnection::read(void* plaintext, size_t nn_plaintext, ssize_t
     srs_error_t err = srs_success;
 
     while (true) {
-        int r0 = SSL_read(ssl, plaintext, nn_plaintext); int r1 = SSL_get_error(ssl, r0);
+        int r0 = SSL_read(ssl, plaintext, nn_plaintext); int r1 = SSL_get_error(ssl, r0); ERR_clear_error();
         int r2 = BIO_ctrl_pending(bio_in); int r3 = SSL_is_init_finished(ssl);
 
         // OK, got data.
@@ -804,19 +902,18 @@ srs_error_t SrsSslConnection::read(void* plaintext, size_t nn_plaintext, ssize_t
         if (r0 == -1 && r1 == SSL_ERROR_WANT_READ) {
             // TODO: Can we avoid copy?
             int nn_cipher = nn_plaintext;
-            char* cipher = new char[nn_cipher];
-            SrsAutoFreeA(char, cipher);
+            SrsUniquePtr<char[]> cipher(new char[nn_cipher]);
 
             // Read the cipher from SSL.
             ssize_t nn = 0;
-            if ((err = transport->read(cipher, nn_cipher, &nn)) != srs_success) {
+            if ((err = transport->read(cipher.get(), nn_cipher, &nn)) != srs_success) {
                 return srs_error_wrap(err, "https: read");
             }
 
-            int r0 = BIO_write(bio_in, cipher, nn);
+            int r0 = BIO_write(bio_in, cipher.get(), nn);
             if (r0 <= 0) {
                 // TODO: 0 or -1 maybe block, use BIO_should_retry to check.
-                return srs_error_new(ERROR_HTTPS_READ, "BIO_write r0=%d, cipher=%p, size=%d", r0, cipher, nn);
+                return srs_error_new(ERROR_HTTPS_READ, "BIO_write r0=%d, cipher=%p, size=%d", r0, cipher.get(), nn);
             }
             continue;
         }
@@ -846,7 +943,7 @@ srs_error_t SrsSslConnection::write(void* plaintext, size_t nn_plaintext, ssize_
     for (char* p = (char*)plaintext; p < (char*)plaintext + nn_plaintext;) {
         int left = (int)nn_plaintext - (p - (char*)plaintext);
         int r0 = SSL_write(ssl, (const void*)p, left);
-        int r1 = SSL_get_error(ssl, r0);
+        int r1 = SSL_get_error(ssl, r0); ERR_clear_error();
         if (r0 <= 0) {
             return srs_error_new(ERROR_HTTPS_WRITE, "https: write data=%p, size=%d, r0=%d, r1=%d", p, left, r0, r1);
         }

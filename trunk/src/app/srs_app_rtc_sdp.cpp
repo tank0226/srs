@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 John
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_rtc_sdp.hpp>
 
@@ -73,30 +56,37 @@ static void skip_first_spaces(std::string& str)
 srs_error_t srs_parse_h264_fmtp(const std::string& fmtp, H264SpecificParam& h264_param)
 {
     srs_error_t err = srs_success;
-    std::vector<std::string> vec = split_str(fmtp, ";");
+
+    std::vector<std::string> vec = srs_string_split(fmtp, ";");
     for (size_t i = 0; i < vec.size(); ++i) {
-        std::vector<std::string> kv = split_str(vec[i], "=");
-        if (kv.size() == 2) {
-            if (kv[0] == "profile-level-id") {
-                h264_param.profile_level_id = kv[1];
-            } else if (kv[0] == "packetization-mode") {
-                // 6.3.  Non-Interleaved Mode
-                // This mode is in use when the value of the OPTIONAL packetization-mode
-                // media type parameter is equal to 1.  This mode SHOULD be supported.
-                // It is primarily intended for low-delay applications.  Only single NAL
-                // unit packets, STAP-As, and FU-As MAY be used in this mode.  STAP-Bs,
-                // MTAPs, and FU-Bs MUST NOT be used.  The transmission order of NAL
-                // units MUST comply with the NAL unit decoding order.
-                // @see https://tools.ietf.org/html/rfc6184#section-6.3
-                h264_param.packetization_mode = kv[1];
-            } else if (kv[0] == "level-asymmetry-allowed") {
-                h264_param.level_asymmerty_allow = kv[1];
-            } else {
-                return srs_error_new(ERROR_RTC_SDP_DECODE, "invalid h264 param=%s", kv[0].c_str());
-            }
-        } else {
-            return srs_error_new(ERROR_RTC_SDP_DECODE, "invalid h264 param=%s", vec[i].c_str());
+        std::vector<std::string> kv = srs_string_split(vec[i], "=");
+        if (kv.size() != 2) continue;
+
+        if (kv[0] == "profile-level-id") {
+            h264_param.profile_level_id = kv[1];
+        } else if (kv[0] == "packetization-mode") {
+            // 6.3.  Non-Interleaved Mode
+            // This mode is in use when the value of the OPTIONAL packetization-mode
+            // media type parameter is equal to 1.  This mode SHOULD be supported.
+            // It is primarily intended for low-delay applications.  Only single NAL
+            // unit packets, STAP-As, and FU-As MAY be used in this mode.  STAP-Bs,
+            // MTAPs, and FU-Bs MUST NOT be used.  The transmission order of NAL
+            // units MUST comply with the NAL unit decoding order.
+            // @see https://tools.ietf.org/html/rfc6184#section-6.3
+            h264_param.packetization_mode = kv[1];
+        } else if (kv[0] == "level-asymmetry-allowed") {
+            h264_param.level_asymmerty_allow = kv[1];
         }
+    }
+
+    if (h264_param.profile_level_id.empty()) {
+        return srs_error_new(ERROR_RTC_SDP_DECODE, "no h264 param: profile-level-id");
+    }
+    if (h264_param.packetization_mode.empty()) {
+        return srs_error_new(ERROR_RTC_SDP_DECODE, "no h264 param: packetization-mode");
+    }
+    if (h264_param.level_asymmerty_allow.empty()) {
+        return srs_error_new(ERROR_RTC_SDP_DECODE, "no h264 param: level-asymmetry-allowed");
     }
 
     return err;
@@ -162,7 +152,7 @@ srs_error_t SrsSessionInfo::encode(std::ostringstream& os)
     return err;
 }
 
-bool SrsSessionInfo::operator=(const SrsSessionInfo& rhs)
+bool SrsSessionInfo::operator==(const SrsSessionInfo& rhs)
 {
     return ice_ufrag_        == rhs.ice_ufrag_ &&
            ice_pwd_          == rhs.ice_pwd_ &&
@@ -170,6 +160,16 @@ bool SrsSessionInfo::operator=(const SrsSessionInfo& rhs)
            fingerprint_algo_ == rhs.fingerprint_algo_ &&
            fingerprint_      == rhs.fingerprint_ &&
            setup_            == rhs.setup_;
+}
+
+SrsSessionInfo &SrsSessionInfo::operator=(SrsSessionInfo other) {
+    std::swap(ice_ufrag_, other.ice_ufrag_);
+    std::swap(ice_pwd_, other.ice_pwd_);
+    std::swap(ice_options_, other.ice_options_);
+    std::swap(fingerprint_algo_, other.fingerprint_algo_);
+    std::swap(fingerprint_, other.fingerprint_);
+    std::swap(setup_, other.setup_);
+    return *this;
 }
 
 SrsSSRCInfo::SrsSSRCInfo()
@@ -197,6 +197,17 @@ srs_error_t SrsSSRCInfo::encode(std::ostringstream& os)
 
     if (ssrc_ == 0) {
         return srs_error_new(ERROR_RTC_SDP_DECODE, "invalid ssrc");
+    }
+
+    // See AnnexF at page 101 of https://openstd.samr.gov.cn/bzgk/gb/newGbInfo?hcno=469659DC56B9B8187671FF08748CEC89
+    // Encode the bellow format:
+    //      a=ssrc:0100008888 cname:0100008888
+    //      a=ssrc:0100008888 label:gb28181
+    // As GB28181 format:
+    //      y=0100008888
+    if (label_ == "gb28181") {
+        os << "y=" << (cname_.empty() ? srs_fmt("%u", ssrc_) : cname_) << kCRLF;
+        return err;
     }
 
     os << "a=ssrc:" << ssrc_ << " cname:" << cname_ << kCRLF;
@@ -297,6 +308,8 @@ SrsMediaDesc::SrsMediaDesc(const std::string& type)
     recvonly_ = false;
     sendonly_ = false;
     inactive_ = false;
+
+    connection_ = "c=IN IP4 0.0.0.0";
 }
 
 SrsMediaDesc::~SrsMediaDesc()
@@ -380,13 +393,13 @@ srs_error_t SrsMediaDesc::encode(std::ostringstream& os)
     os << kCRLF;
 
     // TODO:nettype and address type
-    os << "c=IN IP4 0.0.0.0" << kCRLF;
+    if (!connection_.empty()) os << connection_ << kCRLF;
 
     if ((err = session_info_.encode(os)) != srs_success) {
         return srs_error_wrap(err, "encode session info failed");
     }
 
-    os << "a=mid:" << mid_ << kCRLF;
+    if (!mid_.empty()) os << "a=mid:" << mid_ << kCRLF;
     if (!msid_.empty()) {
         os << "a=msid:" << msid_;
         
@@ -441,11 +454,22 @@ srs_error_t SrsMediaDesc::encode(std::ostringstream& os)
         // @see: https://tools.ietf.org/html/draft-ietf-ice-rfc5245bis-00#section-4.2
         uint32_t priority = (1<<24)*(126) + (1<<8)*(65535) + (1)*(256 - component_id);
 
+        // See ICE TCP at https://www.rfc-editor.org/rfc/rfc6544
+        if (iter->protocol_ == "tcp") {
+            os << "a=candidate:" << foundation++ << " "
+               << component_id << " tcp " << priority << " "
+               << iter->ip_ << " " << iter->port_
+               << " typ " << iter->type_
+               << " tcptype passive"
+               << kCRLF;
+            continue;
+        }
+
         // @see: https://tools.ietf.org/id/draft-ietf-mmusic-ice-sip-sdp-14.html#rfc.section.5.1
         os << "a=candidate:" << foundation++ << " "
            << component_id << " udp " << priority << " "
            << iter->ip_ << " " << iter->port_
-           << " typ " << iter->type_ 
+           << " typ " << iter->type_
            << " generation 0" << kCRLF;
 
         srs_verbose("local SDP candidate line=%s", os.str().c_str());
@@ -727,6 +751,8 @@ SrsSdp::SrsSdp()
     
     start_time_ = 0;
     end_time_ = 0;
+
+    ice_lite_ = "a=ice-lite";
 }
 
 SrsSdp::~SrsSdp()
@@ -763,6 +789,9 @@ srs_error_t SrsSdp::parse(const std::string& sdp_str)
         if (!line.empty() && line[line.size()-1] == '\r') {
             line.erase(line.size()-1, 1);
         }
+
+        // Strip the space of line, for pion WebRTC client.
+        line = srs_string_trim_end(line, " ");
 
         if ((err = parse_line(line)) != srs_success) {
             return srs_error_wrap(err, "parse sdp line failed");
@@ -804,9 +833,12 @@ srs_error_t SrsSdp::encode(std::ostringstream& os)
     os << "v=" << version_ << kCRLF;
     os << "o=" << username_ << " " << session_id_ << " " << session_version_ << " " << nettype_ << " " << addrtype_ << " " << unicast_address_ << kCRLF;
     os << "s=" << session_name_ << kCRLF;
+    // Session level connection data, see https://www.ietf.org/rfc/rfc4566.html#section-5.7
+    if (!connection_.empty()) os << connection_ << kCRLF;
+    // Timing, see https://www.ietf.org/rfc/rfc4566.html#section-5.9
     os << "t=" << start_time_ << " " << end_time_ << kCRLF;
     // ice-lite is a minimal version of the ICE specification, intended for servers running on a public IP address.
-    os << "a=ice-lite" << kCRLF;
+    if (!ice_lite_.empty()) os << ice_lite_ << kCRLF;
 
     if (!groups_.empty()) {
         os << "a=group:" << group_policy_;
@@ -816,11 +848,13 @@ srs_error_t SrsSdp::encode(std::ostringstream& os)
         os << kCRLF;
     }
 
-    os << "a=msid-semantic: " << msid_semantic_;
-    for (std::vector<std::string>::iterator iter = msids_.begin(); iter != msids_.end(); ++iter) {
-        os << " " << *iter;
+    if (!msid_semantic_.empty() || !msids_.empty()) {
+        os << "a=msid-semantic: " << msid_semantic_;
+        for (std::vector<std::string>::iterator iter = msids_.begin(); iter != msids_.end(); ++iter) {
+            os << " " << *iter;
+        }
+        os << kCRLF;
     }
-    os << kCRLF;
 
     if ((err = session_info_.encode(os)) != srs_success) {
         return srs_error_wrap(err, "encode session info failed");
@@ -889,10 +923,11 @@ void SrsSdp::set_fingerprint(const std::string& fingerprint)
     }
 }
 
-void SrsSdp::add_candidate(const std::string& ip, const int& port, const std::string& type)
+void SrsSdp::add_candidate(const std::string& protocol, const std::string& ip, const int& port, const std::string& type)
 {
     // @see: https://tools.ietf.org/id/draft-ietf-mmusic-ice-sip-sdp-14.html#rfc.section.5.1
     SrsCandidate candidate;
+    candidate.protocol_ = protocol;
     candidate.ip_ = ip;
     candidate.port_ = port;
     candidate.type_ = type;
@@ -905,7 +940,12 @@ void SrsSdp::add_candidate(const std::string& ip, const int& port, const std::st
 
 std::string SrsSdp::get_ice_ufrag() const
 {
-    // Becaues we use BUNDLE, so we can choose the first element.
+    // For OBS WHIP, use the global ice-ufrag.
+    if (!session_info_.ice_ufrag_.empty()) {
+        return session_info_.ice_ufrag_;
+    }
+
+    // Because we use BUNDLE, so we can choose the first element.
     for (std::vector<SrsMediaDesc>::const_iterator iter = media_descs_.begin(); iter != media_descs_.end(); ++iter) {
         const SrsMediaDesc* desc = &(*iter);
         return desc->session_info_.ice_ufrag_;
@@ -916,7 +956,12 @@ std::string SrsSdp::get_ice_ufrag() const
 
 std::string SrsSdp::get_ice_pwd() const
 {
-    // Becaues we use BUNDLE, so we can choose the first element.
+    // For OBS WHIP, use the global ice pwd.
+    if (!session_info_.ice_pwd_.empty()) {
+        return session_info_.ice_pwd_;
+    }
+
+    // Because we use BUNDLE, so we can choose the first element.
     for (std::vector<SrsMediaDesc>::const_iterator iter = media_descs_.begin(); iter != media_descs_.end(); ++iter) {
         const SrsMediaDesc* desc = &(*iter);
         return desc->session_info_.ice_pwd_;
@@ -927,7 +972,7 @@ std::string SrsSdp::get_ice_pwd() const
 
 std::string SrsSdp::get_dtls_role() const
 {
-    // Becaues we use BUNDLE, so we can choose the first element.
+    // Because we use BUNDLE, so we can choose the first element.
     for (std::vector<SrsMediaDesc>::const_iterator iter = media_descs_.begin(); iter != media_descs_.end(); ++iter) {
         const SrsMediaDesc* desc = &(*iter);
         return desc->session_info_.setup_;
@@ -960,6 +1005,9 @@ srs_error_t SrsSdp::parse_line(const std::string& line)
                 return media_descs_.back().parse_line(line);
             }
             return parse_attribute(content);
+        }
+        case 'y': {
+            return parse_gb28181_ssrc(content);
         }
         case 'm': {
             return parse_media_description(content);
@@ -1066,10 +1114,39 @@ srs_error_t SrsSdp::parse_attribute(const std::string& content)
     return err;
 }
 
+srs_error_t SrsSdp::parse_gb28181_ssrc(const std::string& content)
+{
+    srs_error_t err = srs_success;
+
+    // See AnnexF at page 101 of https://openstd.samr.gov.cn/bzgk/gb/newGbInfo?hcno=469659DC56B9B8187671FF08748CEC89
+    // Convert SSRC of GB28181 from:
+    //      y=0100008888
+    // to standard format:
+    //      a=ssrc:0100008888 cname:0100008888
+    //      a=ssrc:0100008888 label:gb28181
+    string cname = srs_fmt("a=ssrc:%s cname:%s", content.c_str(), content.c_str());
+    if ((err = media_descs_.back().parse_line(cname)) != srs_success) {
+        return srs_error_wrap(err, "parse gb %s cname", content.c_str());
+    }
+
+    string label = srs_fmt("a=ssrc:%s label:gb28181", content.c_str());
+    if ((err = media_descs_.back().parse_line(label)) != srs_success) {
+        return srs_error_wrap(err, "parse gb %s label", content.c_str());
+    }
+
+    return err;
+}
+
 srs_error_t SrsSdp::parse_attr_group(const std::string& value)
 {
     srs_error_t err = srs_success;
     // @see: https://tools.ietf.org/html/rfc5888#section-5
+
+    // Overlook the OBS WHIP group LS, as it is utilized for synchronizing the playback of
+    // the relevant media streams, see https://datatracker.ietf.org/doc/html/rfc5888#section-7
+    if (srs_string_starts_with(value, "LS")) {
+        return err;
+    }
 
     std::istringstream is(value);
 

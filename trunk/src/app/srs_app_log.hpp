@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_LOG_HPP
 #define SRS_APP_LOG_HPP
@@ -30,7 +13,9 @@
 #include <string>
 
 #include <srs_app_reload.hpp>
-#include <srs_service_log.hpp>
+#include <srs_protocol_log.hpp>
+
+class SrsThreadMutex;
 
 // For log TAGs.
 #define TAG_MAIN "MAIN"
@@ -47,7 +32,7 @@ class SrsFileLog : public ISrsLog, public ISrsReloadHandler
 {
 private:
     // Defined in SrsLogLevel.
-    SrsLogLevel level;
+    SrsLogLevel level_;
 private:
     char* log_data;
     // Log to file if specified srs_log_file
@@ -56,6 +41,9 @@ private:
     bool log_to_file_tank;
     // Whether use utc time.
     bool utc;
+    // TODO: FIXME: use macro define like SRS_MULTI_THREAD_LOG to switch enable log mutex or not.
+    // Mutex for multithread log.
+    SrsThreadMutex* mutex_;
 public:
     SrsFileLog();
     virtual ~SrsFileLog();
@@ -63,17 +51,7 @@ public:
 public:
     virtual srs_error_t initialize();
     virtual void reopen();
-    virtual void verbose(const char* tag, SrsContextId context_id, const char* fmt, ...);
-    virtual void info(const char* tag, SrsContextId context_id, const char* fmt, ...);
-    virtual void trace(const char* tag, SrsContextId context_id, const char* fmt, ...);
-    virtual void warn(const char* tag, SrsContextId context_id, const char* fmt, ...);
-    virtual void error(const char* tag, SrsContextId context_id, const char* fmt, ...);
-// Interface ISrsReloadHandler.
-public:
-    virtual srs_error_t on_reload_utc_time();
-    virtual srs_error_t on_reload_log_tank();
-    virtual srs_error_t on_reload_log_level();
-    virtual srs_error_t on_reload_log_file();
+    virtual void log(SrsLogLevel level, const char* tag, const SrsContextId& context_id, const char* fmt, va_list args);
 private:
     virtual void write_log(int& fd, char* str_log, int size, int level);
     virtual void open_log_file();

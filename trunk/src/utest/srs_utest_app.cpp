@@ -1,25 +1,8 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2013-2021 Winlin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 #include <srs_utest_app.hpp>
 
 using namespace std;
@@ -30,7 +13,7 @@ using namespace std;
 #include <srs_app_config.hpp>
 
 #include <srs_app_st.hpp>
-#include <srs_service_conn.hpp>
+#include <srs_protocol_conn.hpp>
 #include <srs_app_conn.hpp>
 
 class MockIDResource : public ISrsResource
@@ -150,7 +133,7 @@ VOID TEST(AppCoroutineTest, Dummy)
 
     if (true) {
         SrsContextId v = dc.cid();
-        EXPECT_FALSE(v.empty());
+        EXPECT_TRUE(v.empty());
 
         srs_error_t err = dc.pull();
         EXPECT_TRUE(err != srs_success);
@@ -167,7 +150,7 @@ VOID TEST(AppCoroutineTest, Dummy)
         dc.stop();
 
         SrsContextId v = dc.cid();
-        EXPECT_FALSE(v.empty());
+        EXPECT_TRUE(v.empty());
 
         srs_error_t err = dc.pull();
         EXPECT_TRUE(err != srs_success);
@@ -184,7 +167,7 @@ VOID TEST(AppCoroutineTest, Dummy)
         dc.interrupt();
 
         SrsContextId v = dc.cid();
-        EXPECT_FALSE(v.empty());
+        EXPECT_TRUE(v.empty());
 
         srs_error_t err = dc.pull();
         EXPECT_TRUE(err != srs_success);
@@ -222,6 +205,8 @@ public:
         srs_error_t r0 = srs_success;
 
         srs_cond_signal(running);
+
+        // The cid should be generated if empty.
         cid = _srs_context->get_id();
 
         while (!quit && (r0 = trd->pull()) == srs_success && err == srs_success) {
@@ -229,6 +214,9 @@ public:
         }
 
         srs_cond_signal(exited);
+
+        // The cid might be updated.
+        cid = _srs_context->get_id();
 
         if (err != srs_success) {
             srs_freep(r0);
@@ -238,6 +226,38 @@ public:
         return r0;
     }
 };
+
+VOID TEST(AppCoroutineTest, SetCidOfCoroutine)
+{
+    srs_error_t err = srs_success;
+
+    MockCoroutineHandler ch;
+    SrsSTCoroutine sc("test", &ch);
+    ch.trd = &sc;
+    EXPECT_TRUE(sc.cid().empty());
+
+    // Start coroutine, which will create the cid.
+    HELPER_ASSERT_SUCCESS(sc.start());
+    HELPER_ASSERT_SUCCESS(sc.pull());
+
+    srs_cond_timedwait(ch.running, 100 * SRS_UTIME_MILLISECONDS);
+    EXPECT_TRUE(!sc.cid().empty());
+    EXPECT_TRUE(!ch.cid.empty());
+
+    // Should be a new cid.
+    SrsContextId cid = _srs_context->generate_id();
+    EXPECT_TRUE(sc.cid().compare(cid) != 0);
+    EXPECT_TRUE(ch.cid.compare(cid) != 0);
+
+    // Set the cid and stop the coroutine.
+    sc.set_cid(cid);
+    sc.stop();
+
+    // Now the cid should be the new one.
+    srs_cond_timedwait(ch.exited, 100 * SRS_UTIME_MILLISECONDS);
+    EXPECT_TRUE(sc.cid().compare(cid) == 0);
+    EXPECT_TRUE(ch.cid.compare(cid) == 0);
+}
 
 VOID TEST(AppCoroutineTest, StartStop)
 {
@@ -538,6 +558,28 @@ VOID TEST(AppSecurity, CheckSecurity)
     }
     if (true) {
         SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "play", "all");
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPlay, "", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "play", "12.13.14.15");
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "play", "11.12.13.14");
+        if (true) {
+            SrsConfDirective* d = new SrsConfDirective();
+            d->name = "deny";
+            d->args.push_back("play");
+            d->args.push_back("12.13.14.15");
+            rules.directives.push_back(d);
+        }
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
         rules.get_or_create("deny", "publish", "12.13.14.15");
         HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtmpConnFMLEPublish, "12.13.14.15", &rr));
     }
@@ -555,6 +597,16 @@ VOID TEST(AppSecurity, CheckSecurity)
         SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
         rules.get_or_create("deny", "publish", "12.13.14.15");
         HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtmpConnHaivisionPublish, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "publish", "12.13.14.15");
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPublish, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "publish", "all");
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPublish, "11.12.13.14", &rr));
     }
 
     // Allowed if not denied.
@@ -588,6 +640,26 @@ VOID TEST(AppSecurity, CheckSecurity)
         rules.get_or_create("deny", "publish", "12.13.14.15");
         HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtmpConnFlashPublish, "11.12.13.14", &rr));
     }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "play", "12.13.14.15");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPlay, "11.12.13.14", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "publish", "12.13.14.15");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "play", "all");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPublish, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("deny", "play", "12.13.14.15");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPublish, "12.13.14.15", &rr));
+    }
 
     // Allowed by rule.
     if (true) {
@@ -599,6 +671,26 @@ VOID TEST(AppSecurity, CheckSecurity)
         SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
         rules.get_or_create("allow", "play", "all");
         HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtmpConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("allow", "play", "12.13.14.15");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("allow", "play", "all");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("allow", "publish", "all");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPublish, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("allow", "publish", "12.13.14.15");
+        HELPER_EXPECT_SUCCESS(sec.do_check(&rules, SrsRtcConnPublish, "12.13.14.15", &rr));
     }
     if (true) {
         SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
@@ -651,6 +743,16 @@ VOID TEST(AppSecurity, CheckSecurity)
     }
     if (true) {
         SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("allow", "play", "11.12.13.14");
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("allow", "publish", "12.13.14.15");
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPlay, "12.13.14.15", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
         rules.get_or_create("allow", "publish", "11.12.13.14");
         HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtmpConnHaivisionPublish, "12.13.14.15", &rr));
     }
@@ -666,6 +768,12 @@ VOID TEST(AppSecurity, CheckSecurity)
         rules.get_or_create("allow", "play", "11.12.13.14");
         rules.get_or_create("deny", "play", "11.12.13.14");
         HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtmpConnPlay, "11.12.13.14", &rr));
+    }
+    if (true) {
+        SrsSecurity sec; SrsRequest rr; SrsConfDirective rules;
+        rules.get_or_create("allow", "play", "11.12.13.14");
+        rules.get_or_create("deny", "play", "11.12.13.14");
+        HELPER_EXPECT_FAILED(sec.do_check(&rules, SrsRtcConnPlay, "11.12.13.14", &rr));
     }
 
     // SRS apply the following simple strategies one by one:

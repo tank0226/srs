@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_core.hpp>
 
@@ -37,16 +20,17 @@ using namespace std;
 #include <srs_kernel_ts.hpp>
 #include <srs_protocol_utility.hpp>
 #include <srs_protocol_amf0.hpp>
-#include <srs_raw_avc.hpp>
-#include <srs_rtmp_stack.hpp>
+#include <srs_protocol_raw_avc.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
 #include <srs_protocol_utility.hpp>
-#include <srs_service_http_client.hpp>
-#include <srs_service_log.hpp>
-#include <srs_service_st.hpp>
-#include <srs_service_http_conn.hpp>
-#include <srs_service_rtmp_conn.hpp>
-#include <srs_service_utility.hpp>
+#include <srs_protocol_http_client.hpp>
+#include <srs_protocol_log.hpp>
+#include <srs_protocol_st.hpp>
+#include <srs_protocol_http_conn.hpp>
+#include <srs_protocol_rtmp_conn.hpp>
+#include <srs_protocol_utility.hpp>
 #include <srs_app_config.hpp>
+#include <srs_app_threads.hpp>
 
 // pre-declare
 srs_error_t proxy_hls2rtmp(std::string hls, std::string rtmp);
@@ -61,6 +45,12 @@ SrsConfig* _srs_config = new SrsConfig();
 // @global Other variables.
 bool _srs_in_docker = false;
 
+// Whether setup config by environment variables, see https://github.com/ossrs/srs/issues/2277
+bool _srs_config_by_env = false;
+
+// The binary name of SRS.
+const char* _srs_binary = NULL;
+
 /**
  * main entrance.
  */
@@ -68,6 +58,8 @@ int main(int argc, char** argv)
 {
     // TODO: support both little and big endian.
     srs_assert(srs_is_little_endian());
+
+    _srs_binary = argv[0];
     
     // directly failed when compile limited.
 #if defined(SRS_GPERF_MP) || defined(SRS_GPERF_MP) \
@@ -75,7 +67,14 @@ int main(int argc, char** argv)
     srs_error("donot support gmc/gmp/gcp/gprof");
     exit(-1);
 #endif
-    
+
+    srs_error_t err = srs_success;
+    if ((err = srs_global_initialize()) != srs_success) {
+        srs_freep(err);
+        srs_error("global init error");
+        return -1;
+    }
+
     srs_trace("srs_ingest_hls base on %s, to ingest hls live to srs", RTMP_SIG_SRS_SERVER);
     
     // parse user options.
@@ -117,7 +116,7 @@ int main(int argc, char** argv)
     srs_trace("input:  %s", in_hls_url.c_str());
     srs_trace("output: %s", out_rtmp_url.c_str());
     
-    srs_error_t err = proxy_hls2rtmp(in_hls_url, out_rtmp_url);
+    err = proxy_hls2rtmp(in_hls_url, out_rtmp_url);
     
     int ret = srs_error_code(err);
     srs_freep(err);
@@ -295,11 +294,10 @@ int SrsIngestHlsInput::parseTs(ISrsTsHandler* handler, char* body, int nb_body)
     int nb_packet = (int)nb_body / SRS_TS_PACKET_SIZE;
     for (int i = 0; i < nb_packet; i++) {
         char* p = (char*)body + (i * SRS_TS_PACKET_SIZE);
-        SrsBuffer* stream = new SrsBuffer(p, SRS_TS_PACKET_SIZE);
-        SrsAutoFree(SrsBuffer, stream);
-        
+        SrsUniquePtr<SrsBuffer> stream(new SrsBuffer(p, SRS_TS_PACKET_SIZE));
+
         // process each ts packet
-        if ((err = context->decode(stream, handler)) != srs_success) {
+        if ((err = context->decode(stream.get(), handler)) != srs_success) {
             // TODO: FIXME: Use error
             ret = srs_error_code(err);
             srs_freep(err);
@@ -316,10 +314,9 @@ int SrsIngestHlsInput::parseTs(ISrsTsHandler* handler, char* body, int nb_body)
 int SrsIngestHlsInput::parseAac(ISrsAacHandler* handler, char* body, int nb_body, double duration)
 {
     int ret = ERROR_SUCCESS;
-    
-    SrsBuffer* stream = new SrsBuffer(body, nb_body);
-    SrsAutoFree(SrsBuffer, stream);
-    
+
+    SrsUniquePtr<SrsBuffer> stream(new SrsBuffer(body, nb_body));
+
     // atleast 2bytes.
     if (!stream->require(3)) {
         ret = ERROR_AAC_BYTES_INVALID;
@@ -385,8 +382,8 @@ int SrsIngestHlsInput::parseM3u8(SrsHttpUri* url, double& td, double& duration)
         return ret;
     }
     
-    ISrsHttpMessage* msg = NULL;
-    if ((err = client.get(url->get_path(), "", &msg)) != srs_success) {
+    ISrsHttpMessage* msg_raw = NULL;
+    if ((err = client.get(url->get_path(), "", &msg_raw)) != srs_success) {
         // TODO: FIXME: Use error
         ret = srs_error_code(err);
         srs_freep(err);
@@ -394,8 +391,8 @@ int SrsIngestHlsInput::parseM3u8(SrsHttpUri* url, double& td, double& duration)
         return ret;
     }
     
-    srs_assert(msg);
-    SrsAutoFree(ISrsHttpMessage, msg);
+    srs_assert(msg_raw);
+    SrsUniquePtr<ISrsHttpMessage> msg(msg_raw);
     
     std::string body;
     if ((err = msg->body_read_all(body)) != srs_success) {
@@ -616,12 +613,12 @@ int SrsIngestHlsInput::SrsTsPiece::fetch(string m3u8)
     }
     
     // initialize the fresh http client.
-    if ((ret = client.initialize(uri.get_schema(), uri.get_host(), uri.get_port()) != ERROR_SUCCESS)) {
+    if ((ret = client.initialize(uri.get_schema(), uri.get_host(), uri.get_port()) != srs_success)) {
         return ret;
     }
     
-    ISrsHttpMessage* msg = NULL;
-    if ((err = client.get(uri.get_path(), "", &msg)) != srs_success) {
+    ISrsHttpMessage* msg_raw = NULL;
+    if ((err = client.get(uri.get_path(), "", &msg_raw)) != srs_success) {
         // TODO: FIXME: Use error
         ret = srs_error_code(err);
         srs_freep(err);
@@ -629,8 +626,8 @@ int SrsIngestHlsInput::SrsTsPiece::fetch(string m3u8)
         return ret;
     }
     
-    srs_assert(msg);
-    SrsAutoFree(ISrsHttpMessage, msg);
+    srs_assert(msg_raw);
+    SrsUniquePtr<ISrsHttpMessage> msg(msg_raw);
     
     if ((err = msg->body_read_all(body)) != srs_success) {
         // TODO: FIXME: Use error
@@ -646,7 +643,7 @@ int SrsIngestHlsInput::SrsTsPiece::fetch(string m3u8)
 }
 
 // the context to output to rtmp server
-class SrsIngestHlsOutput : virtual public ISrsTsHandler, virtual public ISrsAacHandler
+class SrsIngestHlsOutput : public ISrsTsHandler, public ISrsAacHandler
 {
 private:
     SrsHttpUri* out_rtmp;
@@ -744,7 +741,7 @@ srs_error_t SrsIngestHlsOutput::on_ts_message(SrsTsMessage* msg)
     //      because when audio stream_number is 0, the elementary is ADTS(ISO_IEC_14496-3-AAC-2001.pdf, page 75, 1.A.2.2 ADTS).
     
     // about the bytes of PES_packet_data_byte, defined in hls-mpeg-ts-iso13818-1.pdf, page 58
-    // PES_packet_data_byte ¨C PES_packet_data_bytes shall be contiguous bytes of data from the elementary stream
+    // PES_packet_data_byte "C PES_packet_data_bytes shall be contiguous bytes of data from the elementary stream
     // indicated by the packet¡¯s stream_id or PID. When the elementary stream data conforms to ITU-T
     // Rec. H.262 | ISO/IEC 13818-2 or ISO/IEC 13818-3, the PES_packet_data_bytes shall be byte aligned to the bytes of this
     // Recommendation | International Standard. The byte-order of the elementary stream shall be preserved. The number of
@@ -756,12 +753,12 @@ srs_error_t SrsIngestHlsOutput::on_ts_message(SrsTsMessage* msg)
     // PES_packet_data_byte field are user definable and will not be specified by ITU-T | ISO/IEC in the future.
     
     // about the bytes of stream_id, define in  hls-mpeg-ts-iso13818-1.pdf, page 49
-    // stream_id ¨C In Program Streams, the stream_id specifies the type and number of the elementary stream as defined by the
+    // stream_id "C In Program Streams, the stream_id specifies the type and number of the elementary stream as defined by the
     // stream_id Table 2-18. In Transport Streams, the stream_id may be set to any valid value which correctly describes the
     // elementary stream type as defined in Table 2-18. In Transport Streams, the elementary stream type is specified in the
     // Program Specific Information as specified in 2.4.4.
     
-    // about the stream_id table, define in Table 2-18 ¨C Stream_id assignments, hls-mpeg-ts-iso13818-1.pdf, page 52.
+    // about the stream_id table, define in Table 2-18 "C Stream_id assignments, hls-mpeg-ts-iso13818-1.pdf, page 52.
     //
     // 110x xxxx
     // ISO/IEC 13818-3 or ISO/IEC 11172-3 or ISO/IEC 13818-7 or ISO/IEC
@@ -912,9 +909,8 @@ int SrsIngestHlsOutput::parse_message_queue()
     while ((cpa && queue.size() > 1) || nb_videos > 1) {
         srs_assert(!queue.empty());
         std::multimap<int64_t, SrsTsMessage*>::iterator it = queue.begin();
-        
-        SrsTsMessage* msg = it->second;
-        SrsAutoFree(SrsTsMessage, msg);
+
+        SrsUniquePtr<SrsTsMessage> msg(it->second);
         queue.erase(it);
         
         if (msg->channel->stream == SrsTsStreamVideoH264) {
@@ -926,12 +922,12 @@ int SrsIngestHlsOutput::parse_message_queue()
         
         // publish audio or video.
         if (msg->channel->stream == SrsTsStreamVideoH264) {
-            if ((ret = on_ts_video(msg, &avs)) != ERROR_SUCCESS) {
+            if ((ret = on_ts_video(msg.get(), &avs)) != ERROR_SUCCESS) {
                 return ret;
             }
         }
         if (msg->channel->stream == SrsTsStreamAudioAAC) {
-            if ((ret = on_ts_audio(msg, &avs)) != ERROR_SUCCESS) {
+            if ((ret = on_ts_audio(msg.get(), &avs)) != ERROR_SUCCESS) {
                 return ret;
             }
         }
@@ -947,9 +943,8 @@ int SrsIngestHlsOutput::flush_message_queue()
     // parse messages util the last video.
     while (!queue.empty()) {
         std::multimap<int64_t, SrsTsMessage*>::iterator it = queue.begin();
-        
-        SrsTsMessage* msg = it->second;
-        SrsAutoFree(SrsTsMessage, msg);
+
+        SrsUniquePtr<SrsTsMessage> msg(it->second);
         queue.erase(it);
         
         // parse the stream.
@@ -957,12 +952,12 @@ int SrsIngestHlsOutput::flush_message_queue()
         
         // publish audio or video.
         if (msg->channel->stream == SrsTsStreamVideoH264) {
-            if ((ret = on_ts_video(msg, &avs)) != ERROR_SUCCESS) {
+            if ((ret = on_ts_video(msg.get(), &avs)) != ERROR_SUCCESS) {
                 return ret;
             }
         }
         if (msg->channel->stream == SrsTsStreamAudioAAC) {
-            if ((ret = on_ts_audio(msg, &avs)) != ERROR_SUCCESS) {
+            if ((ret = on_ts_audio(msg.get(), &avs)) != ERROR_SUCCESS) {
                 return ret;
             }
         }
@@ -1090,7 +1085,7 @@ int SrsIngestHlsOutput::write_h264_sps_pps(uint32_t dts, uint32_t pts)
     
     // h264 raw to h264 packet.
     std::string sh;
-    if ((err = avc->mux_sequence_header(h264_sps, h264_pps, dts, pts, sh)) != srs_success) {
+    if ((err = avc->mux_sequence_header(h264_sps, h264_pps, sh)) != srs_success) {
         // TODO: FIXME: Use error
         ret = srs_error_code(err);
         srs_freep(err);
@@ -1130,7 +1125,6 @@ int SrsIngestHlsOutput::write_h264_ipb_frame(string ibps, SrsVideoAvcFrameType f
     srs_error_t err = srs_success;
     
     // when sps or pps not sent, ignore the packet.
-    // @see https://github.com/ossrs/srs/issues/203
     if (!h264_sps_pps_sent) {
         return ERROR_H264_DROP_BEFORE_SPS_PPS;
     }

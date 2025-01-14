@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Bepartofyou
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_rtc_codec.hpp>
 
@@ -27,17 +10,79 @@
 #include <srs_kernel_error.hpp>
 #include <srs_kernel_log.hpp>
 
-static const char* id2codec_name(SrsAudioCodecId id)
+static const AVCodec* srs_find_decoder_by_id(SrsAudioCodecId id)
 {
-    switch (id) {
-    case SrsAudioCodecIdAAC:
-        return "aac";
-    case SrsAudioCodecIdOpus:
-        return "libopus";
-    default:
-        return "";
+    if (id == SrsAudioCodecIdAAC) {
+        return avcodec_find_decoder_by_name("aac");
+    } else if (id == SrsAudioCodecIdMP3) {
+        return avcodec_find_decoder_by_name("mp3");
+    } else if (id == SrsAudioCodecIdOpus) {
+#ifdef SRS_FFMPEG_OPUS
+        // TODO: FIXME: Note that the audio might be corrupted, see https://github.com/ossrs/srs/issues/3140
+        return avcodec_find_decoder_by_name("opus");
+#else
+        return avcodec_find_decoder_by_name("libopus");
+#endif
     }
+    return NULL;
 }
+
+static const AVCodec* srs_find_encoder_by_id(SrsAudioCodecId id)
+{
+    if (id == SrsAudioCodecIdAAC) {
+        return avcodec_find_encoder_by_name("aac");
+    } else if (id == SrsAudioCodecIdOpus) {
+#ifdef SRS_FFMPEG_OPUS
+        // TODO: FIXME: Note that the audio might be corrupted, see https://github.com/ossrs/srs/issues/3140
+        return avcodec_find_encoder_by_name("opus");
+#else
+        return avcodec_find_encoder_by_name("libopus");
+#endif
+    }
+    return NULL;
+}
+
+class SrsFFmpegLogHelper {
+public:
+    SrsFFmpegLogHelper() {
+        av_log_set_callback(ffmpeg_log_callback);
+        av_log_set_level(AV_LOG_TRACE);
+    }
+
+    static void ffmpeg_log_callback(void*, int level, const char* fmt, va_list vl) 
+    {
+        static char buf[4096] = {0};
+        int nbytes = vsnprintf(buf, sizeof(buf), fmt, vl);
+        if (nbytes > 0 && nbytes < (int)sizeof(buf)) {
+            // Srs log is always start with new line, replcae '\n' to '\0', make log easy to read.
+            if (buf[nbytes - 1] == '\n') {
+                buf[nbytes - 1] = '\0';
+            }
+            switch (level) {
+                case AV_LOG_PANIC:
+                case AV_LOG_FATAL:
+                case AV_LOG_ERROR:
+                    srs_error("%s", buf);
+                    break;
+                case AV_LOG_WARNING:
+                    srs_warn("%s", buf);
+                    break;
+                case AV_LOG_INFO:
+                    srs_trace("%s", buf);
+                    break;
+                case AV_LOG_VERBOSE:
+                case AV_LOG_DEBUG:
+                case AV_LOG_TRACE:
+                default:
+                    srs_verbose("%s", buf);
+                    break;
+            }
+        }
+    }
+};
+
+// Register FFmpeg log callback funciton.
+SrsFFmpegLogHelper _srs_ffmpeg_log_helper;
 
 SrsAudioTranscoder::SrsAudioTranscoder()
 {
@@ -150,10 +195,9 @@ void SrsAudioTranscoder::aac_codec_header(uint8_t **data, int *len)
 
 srs_error_t SrsAudioTranscoder::init_dec(SrsAudioCodecId src_codec)
 {
-    const char* codec_name = id2codec_name(src_codec);
-    const AVCodec *codec = avcodec_find_decoder_by_name(codec_name);
+    const AVCodec *codec = srs_find_decoder_by_id(src_codec);
     if (!codec) {
-        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by name(%d,%s)", src_codec, codec_name);
+        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by %d", src_codec);
     }
 
     dec_ = avcodec_alloc_context3(codec);
@@ -164,6 +208,8 @@ srs_error_t SrsAudioTranscoder::init_dec(SrsAudioCodecId src_codec)
     if (avcodec_open2(dec_, codec, NULL) < 0) {
         return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not open codec");
     }
+    
+    dec_->channel_layout = av_get_default_channel_layout(dec_->channels);
 
     dec_frame_ = av_frame_alloc();
     if (!dec_frame_) {
@@ -181,15 +227,14 @@ srs_error_t SrsAudioTranscoder::init_dec(SrsAudioCodecId src_codec)
 
 srs_error_t SrsAudioTranscoder::init_enc(SrsAudioCodecId dst_codec, int dst_channels, int dst_samplerate, int dst_bit_rate)
 {
-    const char* codec_name = id2codec_name(dst_codec);
-    const AVCodec *codec = avcodec_find_encoder_by_name(codec_name);
+    const AVCodec *codec = srs_find_encoder_by_id(dst_codec);
     if (!codec) {
-        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by name(%d,%s)", dst_codec, codec_name);
+        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by %d", dst_codec);
     }
 
     enc_ = avcodec_alloc_context3(codec);
     if (!enc_) {
-        return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not allocate audio codec context(%d,%s)", dst_codec, codec_name);
+        return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not allocate audio codec context %d", dst_codec);
     }
 
     enc_->sample_rate = dst_samplerate;
@@ -197,10 +242,15 @@ srs_error_t SrsAudioTranscoder::init_enc(SrsAudioCodecId dst_codec, int dst_chan
     enc_->channel_layout = av_get_default_channel_layout(dst_channels);
     enc_->bit_rate = dst_bit_rate;
     enc_->sample_fmt = codec->sample_fmts[0];
-    enc_->time_base.num = 1; enc_->time_base.den = 1000; // {1, 1000}
+    enc_->time_base.num = 1; enc_->time_base.den = dst_samplerate; // {1, dst_samplerate}
     if (dst_codec == SrsAudioCodecIdOpus) {
         //TODO: for more level setting
         enc_->compression_level = 1;
+        enc_->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+
+#ifdef SRS_FFMPEG_OPUS
+        av_opt_set(enc_->priv_data, "opus_delay", "25", 0);
+#endif
     } else if (dst_codec == SrsAudioCodecIdAAC) {
         enc_->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
     }
@@ -214,7 +264,6 @@ srs_error_t SrsAudioTranscoder::init_enc(SrsAudioCodecId dst_codec, int dst_chan
     if (!enc_frame_) {
         return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not allocate audio encode in frame");
     }
-
     enc_frame_->format = enc_->sample_fmt;
     enc_frame_->nb_samples = enc_->frame_size;
     enc_frame_->channel_layout = enc_->channel_layout;
@@ -280,8 +329,12 @@ srs_error_t SrsAudioTranscoder::decode_and_resample(SrsAudioFrame *pkt)
     dec_packet_->data = (uint8_t *)pkt->samples[0].bytes;
     dec_packet_->size = pkt->samples[0].size;
 
-    char err_buf[AV_ERROR_MAX_STRING_SIZE] = {0};
+    // Ignore empty packet, see https://github.com/ossrs/srs/pull/2757#discussion_r759797651
+    if (!dec_packet_->data || !dec_packet_->size){
+        return err;
+    }
 
+    char err_buf[AV_ERROR_MAX_STRING_SIZE] = {0};
     int error = avcodec_send_packet(dec_, dec_packet_);
     if (error < 0) {
         return srs_error_new(ERROR_RTC_RTP_MUXER, "submit to dec(%d,%s)", error,
@@ -330,24 +383,29 @@ srs_error_t SrsAudioTranscoder::encode(std::vector<SrsAudioFrame*> &pkts)
     if (next_out_pts_ == AV_NOPTS_VALUE) {
         next_out_pts_ = new_pkt_pts_;
     } else {
-        int64_t diff = llabs(new_pkt_pts_ - next_out_pts_);
+        int64_t diff = llabs(new_pkt_pts_ - av_rescale(next_out_pts_, 1000, enc_->time_base.den));
         if (diff > 1000) {
             srs_trace("time diff to large=%lld, next out=%lld, new pkt=%lld, set to new pkt",
                 diff, next_out_pts_, new_pkt_pts_);
-            next_out_pts_ = new_pkt_pts_;
+            next_out_pts_ = av_rescale(new_pkt_pts_, enc_->time_base.den, 1000);
         }
     }
 
-    int frame_cnt = 0;
     while (av_audio_fifo_size(fifo_) >= enc_->frame_size) {
+        // make sure the frame is writable
+        if (av_frame_make_writable(enc_frame_) < 0) {
+            return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not make writable frame");
+        }
+
         /* Read as many samples from the FIFO buffer as required to fill the frame.
         * The samples are stored in the frame temporarily. */
         if (av_audio_fifo_read(fifo_, (void **)enc_frame_->data, enc_->frame_size) < enc_->frame_size) {
             return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not read data from FIFO");
         }
+
         /* send the frame for encoding */
-        enc_frame_->pts = next_out_pts_ + av_rescale(enc_->frame_size * frame_cnt, 1000, enc_->sample_rate);
-        ++frame_cnt;
+        enc_frame_->pts = next_out_pts_;
+        next_out_pts_ += enc_->frame_size;
         int error = avcodec_send_frame(enc_, enc_frame_);
         if (error < 0) {
             return srs_error_new(ERROR_RTC_RTP_MUXER, "Error sending the frame to the encoder(%d,%s)", error,
@@ -369,6 +427,10 @@ srs_error_t SrsAudioTranscoder::encode(std::vector<SrsAudioFrame*> &pkts)
                     av_make_error_string(err_buf, AV_ERROR_MAX_STRING_SIZE, error));
             }
 
+            // rescale time base from sample_rate 1000.
+            enc_packet_->dts = av_rescale(enc_packet_->dts, 1000, enc_->time_base.den); 
+            enc_packet_->pts = av_rescale(enc_packet_->pts, 1000, enc_->time_base.den);
+
             SrsAudioFrame *out_frame = new SrsAudioFrame;
             char *buf = new char[enc_packet_->size];
             memcpy(buf, enc_packet_->data, enc_packet_->size);
@@ -378,8 +440,6 @@ srs_error_t SrsAudioTranscoder::encode(std::vector<SrsAudioFrame*> &pkts)
             pkts.push_back(out_frame);
         }
     }
-
-    next_out_pts_ += av_rescale(enc_->frame_size * frame_cnt, 1000, enc_->sample_rate);
 
     return srs_success;
 }

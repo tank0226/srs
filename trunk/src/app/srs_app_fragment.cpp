@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_fragment.hpp>
 
@@ -36,6 +19,7 @@ SrsFragment::SrsFragment()
     dur = 0;
     start_dts = -1;
     sequence_header = false;
+    number_ = 0;
 }
 
 SrsFragment::~SrsFragment()
@@ -61,6 +45,11 @@ void SrsFragment::append(int64_t dts)
     // TODO: FIXME: Use cumulus dts.
     start_dts = srs_min(start_dts, dts_in_tbn);
     dur = dts_in_tbn - start_dts;
+}
+
+srs_utime_t SrsFragment::get_start_dts()
+{
+    return start_dts;
 }
 
 srs_utime_t SrsFragment::duration()
@@ -151,6 +140,16 @@ srs_error_t SrsFragment::rename()
 
     filepath = full_path;
     return err;
+}
+
+void SrsFragment::set_number(uint64_t n)
+{
+    number_ = n;
+}
+
+uint64_t SrsFragment::number()
+{
+    return number_;
 }
 
 SrsFragmentWindow::SrsFragmentWindow()

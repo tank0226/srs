@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_KERNEL_UTILITY_HPP
 #define SRS_KERNEL_UTILITY_HPP
@@ -61,6 +44,9 @@ extern void srs_parse_hostport(std::string hostport, std::string& host, int& por
 // Parse the endpoint to ip and port.
 // @remark The hostport format in <[ip:]port>, where ip is default to "0.0.0.0".
 extern void srs_parse_endpoint(std::string hostport, std::string& ip, int& port);
+
+// Check whether the ip is valid.
+extern bool srs_check_ip_addr_valid(std::string ip);
 
 // Parse the int64 value to string.
 extern std::string srs_int2str(int64_t value);
@@ -105,6 +91,8 @@ extern std::string srs_string_min_match(std::string str, std::vector<std::string
 // Split the string by seperator to array.
 extern std::vector<std::string> srs_string_split(std::string s, std::string seperator);
 extern std::vector<std::string> srs_string_split(std::string s, std::vector<std::string> seperators);
+// Format to a string.
+extern std::string srs_fmt(const char* fmt, ...);
 
 // Compare the memory in bytes.
 // @return true if completely equal; otherwise, false.
@@ -163,13 +151,13 @@ extern char* srs_data_to_hex_lowercase(char* des, const uint8_t* src, int len);
 // @param cache, the cache to write header.
 // @param nb_cache, the size of cache.
 // @return The size of header. 0 if cache not enough.
-extern int srs_chunk_header_c0(int perfer_cid, uint32_t timestamp, int32_t payload_length, int8_t message_type, int32_t stream_id, char* cache, int nb_cache);
+extern int srs_chunk_header_c0(int prefer_cid, uint32_t timestamp, int32_t payload_length, int8_t message_type, int32_t stream_id, char* cache, int nb_cache);
 
 // Generate the c3 chunk header for msg.
 // @param cache, the cache to write header.
 // @param nb_cache, the size of cache.
 // @return the size of header. 0 if cache not enough.
-extern int srs_chunk_header_c3(int perfer_cid, uint32_t timestamp, char* cache, int nb_cache);
+extern int srs_chunk_header_c3(int prefer_cid, uint32_t timestamp, char* cache, int nb_cache);
 
 // For utest to mock it.
 #include <sys/time.h>

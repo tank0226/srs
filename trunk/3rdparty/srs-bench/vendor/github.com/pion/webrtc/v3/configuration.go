@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+//go:build !js
 // +build !js
 
 package webrtc
@@ -27,7 +31,7 @@ type Configuration struct {
 	// PeerIdentity sets the target peer identity for the PeerConnection.
 	// The PeerConnection will not establish a connection to a remote peer
 	// unless it can be successfully authenticated with the provided name.
-	PeerIdentity string `json:"peerIdentity"`
+	PeerIdentity string `json:"peerIdentity,omitempty"`
 
 	// Certificates describes a set of certificates that the PeerConnection
 	// uses to authenticate. Valid values for this parameter are created

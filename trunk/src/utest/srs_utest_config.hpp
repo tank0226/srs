@@ -1,25 +1,8 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2013-2021 Winlin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_UTEST_CONFIG_HPP
 #define SRS_UTEST_CONFIG_HPP
@@ -49,9 +32,36 @@ class MockSrsConfig : public SrsConfig
 public:
     MockSrsConfig();
     virtual ~MockSrsConfig();
+private:
+    std::map<std::string, std::string> included_files;
 public:
     virtual srs_error_t parse(std::string buf);
+    virtual srs_error_t mock_include(const std::string file_name, const std::string content);
+protected:
+    virtual srs_error_t build_buffer(std::string src, srs_internal::SrsConfigBuffer** pbuffer);
 };
+
+class ISrsSetEnvConfig
+{
+private:
+    std::string key;
+public:
+    ISrsSetEnvConfig(const std::string& k, const std::string& v, bool overwrite) {
+        key = k;
+        srs_setenv(k, v, overwrite);
+    }
+    virtual ~ISrsSetEnvConfig() {
+        srs_unsetenv(key);
+    }
+private:
+    // Adds, changes environment variables, which may starts with $.
+    int srs_setenv(const std::string& key, const std::string& value, bool overwrite);
+    // Deletes environment variables, which may starts with $.
+    int srs_unsetenv(const std::string& key);
+};
+
+#define SrsSetEnvConfig(instance, key, value) \
+    ISrsSetEnvConfig _SRS_free_##instance(key, value, true)
 
 #endif
 

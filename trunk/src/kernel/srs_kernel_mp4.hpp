@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_KERNEL_MP4_HPP
 #define SRS_KERNEL_MP4_HPP
@@ -49,10 +32,11 @@ class SrsMp4SampleDescriptionBox;
 class SrsMp4AvccBox;
 class SrsMp4DecoderSpecificInfo;
 class SrsMp4VisualSampleEntry;
-class SrsMp4AvccBox;
+class SrsMp4HvcCBox;
 class SrsMp4AudioSampleEntry;
 class SrsMp4EsdsBox;
 class SrsMp4ChunkOffsetBox;
+class SrsMp4ChunkLargeOffsetBox;
 class SrsMp4SampleSizeBox;
 class SrsMp4Sample2ChunkBox;
 class SrsMp4DecodingTime2SampleBox;
@@ -127,6 +111,8 @@ enum SrsMp4BoxType
     SrsMp4BoxTypeTFDT = 0x74666474, // 'tfdt'
     SrsMp4BoxTypeTRUN = 0x7472756e, // 'trun'
     SrsMp4BoxTypeSIDX = 0x73696478, // 'sidx'
+    SrsMp4BoxTypeHEV1 = 0x68657631, // 'hev1'
+    SrsMp4BoxTypeHVCC = 0x68766343, // 'hvcC'
 };
 
 // 8.4.3.3 Semantics
@@ -154,6 +140,7 @@ enum SrsMp4BoxBrand
     SrsMp4BoxBrandDASH = 0x64617368, // 'dash'
     SrsMp4BoxBrandMSDH = 0x6d736468, // 'msdh'
     SrsMp4BoxBrandMSIX = 0x6d736978, // 'msix'
+    SrsMp4BoxBrandHEV1 = 0x68657631, // 'hev1'
 };
 
 // The context to dump.
@@ -293,6 +280,7 @@ public:
     virtual ~SrsMp4FileTypeBox();
 public:
     virtual void set_compatible_brands(SrsMp4BoxBrand b0, SrsMp4BoxBrand b1);
+    virtual void set_compatible_brands(SrsMp4BoxBrand b0, SrsMp4BoxBrand b1, SrsMp4BoxBrand b2);
     virtual void set_compatible_brands(SrsMp4BoxBrand b0, SrsMp4BoxBrand b1, SrsMp4BoxBrand b2, SrsMp4BoxBrand b3);
 protected:
     virtual int nb_header();
@@ -1205,6 +1193,9 @@ public:
     // Get the chunk offset box.
     virtual SrsMp4ChunkOffsetBox* stco();
     virtual void set_stco(SrsMp4ChunkOffsetBox* v);
+    // Get the chunk large offset box.
+    virtual SrsMp4ChunkLargeOffsetBox* co64();
+    virtual void set_co64(SrsMp4ChunkLargeOffsetBox* v);
     // Get the sample size box.
     virtual SrsMp4SampleSizeBox* stsz();
     virtual void set_stsz(SrsMp4SampleSizeBox* v);
@@ -1274,12 +1265,16 @@ public:
     uint16_t depth;
     int16_t pre_defined2;
 public:
-    SrsMp4VisualSampleEntry();
+    SrsMp4VisualSampleEntry(SrsMp4BoxType boxType);
     virtual ~SrsMp4VisualSampleEntry();
 public:
     // For avc1, get the avcc box.
     virtual SrsMp4AvccBox* avcC();
     virtual void set_avcC(SrsMp4AvccBox* v);
+public:
+    // For hev1, get the hvcC box.
+    virtual SrsMp4HvcCBox* hvcC();
+    virtual void set_hvcC(SrsMp4HvcCBox* v);
 protected:
     virtual int nb_header();
     virtual srs_error_t encode_header(SrsBuffer* buf);
@@ -1297,6 +1292,23 @@ public:
 public:
     SrsMp4AvccBox();
     virtual ~SrsMp4AvccBox();
+protected:
+    virtual int nb_header();
+    virtual srs_error_t encode_header(SrsBuffer* buf);
+    virtual srs_error_t decode_header(SrsBuffer* buf);
+public:
+    virtual std::stringstream& dumps_detail(std::stringstream& ss, SrsMp4DumpContext dc);
+};
+
+// 8.4.1 HEVC Video Stream Definition (hvcC)
+// ISO-14496-15-AVC-file-format-2017.pdf, page 73
+class SrsMp4HvcCBox : public SrsMp4Box
+{
+public:
+    std::vector<char> hevc_config;
+public:
+    SrsMp4HvcCBox();
+    virtual ~SrsMp4HvcCBox();
 protected:
     virtual int nb_header();
     virtual srs_error_t encode_header(SrsBuffer* buf);
@@ -1386,6 +1398,10 @@ enum SrsMp4ObjectType
     SrsMp4ObjectTypeForbidden = 0x00,
     // Audio ISO/IEC 14496-3
     SrsMp4ObjectTypeAac = 0x40,
+    // Audio ISO/IEC 13818-3
+    SrsMp4ObjectTypeMp3 = 0x69,
+    // Audio ISO/IEC 11172-3
+    SrsMp4ObjectTypeMp1a = 0x6B,
 };
 
 // Table 6 — streamType Values
@@ -1915,11 +1931,11 @@ public:
     virtual srs_error_t write(SrsMp4MovieBox* moov);
     // Write the samples info to moof.
     // @param The dts is the dts of last segment.
-    virtual srs_error_t write(SrsMp4MovieFragmentBox* moof, uint64_t& dts);
+    virtual srs_error_t write(SrsMp4MovieFragmentBox* moof, uint64_t dts);
 private:
     virtual srs_error_t write_track(SrsFrameType track,
         SrsMp4DecodingTime2SampleBox* stts, SrsMp4SyncSampleBox* stss, SrsMp4CompositionTime2SampleBox* ctts,
-        SrsMp4Sample2ChunkBox* stsc, SrsMp4SampleSizeBox* stsz, SrsMp4ChunkOffsetBox* stco);
+        SrsMp4Sample2ChunkBox* stsc, SrsMp4SampleSizeBox* stsz, SrsMp4FullBox* co);
     virtual srs_error_t do_load(std::map<uint64_t, SrsMp4Sample*>& tses, SrsMp4MovieBox* moov);
 private:
     // Load the samples of track from stco, stsz and stsc.
@@ -2060,6 +2076,8 @@ public:
 private:
     // For H.264/AVC, the avcc contains the sps/pps.
     std::vector<char> pavcc;
+    // For H.265/HEVC, the hvcC contains the vps/sps/pps.
+    std::vector<char> phvcc;
     // The number of video samples.
     uint32_t nb_videos;
     // The duration of video stream.
@@ -2089,6 +2107,7 @@ public:
 private:
     virtual srs_error_t copy_sequence_header(SrsFormat* format, bool vsh, uint8_t* sample, uint32_t nb_sample);
     virtual srs_error_t do_write_sample(SrsMp4Sample* ps, uint8_t* sample, uint32_t nb_sample);
+    virtual SrsMp4ObjectType get_audio_object_type();
 };
 
 // A fMP4 encoder, to write the init.mp4 with sequence header.

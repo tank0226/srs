@@ -1,37 +1,31 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2021 Winlin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2013-2025 The SRS Authors */
 
 #include <st_utest.hpp>
 
 #include <st.h>
 #include <assert.h>
 
+std::ostream& operator<<(std::ostream& out, const ErrorObject* err) {
+    if (!err) return out;
+    if (err->r0_) out << "r0=" << err->r0_;
+    if (err->errno_) out << ", errno=" << err->errno_;
+    if (!err->message_.empty()) out << ", msg=" << err->message_;
+    return out;
+}
+
 // We could do something in the main of utest.
 // Copy from gtest-1.6.0/src/gtest_main.cc
 GTEST_API_ int main(int argc, char **argv) {
     // Select the best event system available on the OS. In Linux this is
-    // epoll(). On BSD it will be kqueue.
+    // epoll(). On BSD it will be kqueue. On Cygwin it will be select.
+#if __CYGWIN__
+    assert(st_set_eventsys(ST_EVENTSYS_SELECT) != -1);
+#else
     assert(st_set_eventsys(ST_EVENTSYS_ALT) != -1);
+#endif
+
+    // Initialize state-threads, create idle coroutine.
     assert(st_init() == 0);
 
     testing::InitGoogleTest(&argc, argv);
@@ -39,7 +33,7 @@ GTEST_API_ int main(int argc, char **argv) {
 }
 
 // basic test and samples.
-VOID TEST(SampleTest, FastSampleInt64Test)
+VOID TEST(SampleTest, ExampleIntSizeTest)
 {
     EXPECT_EQ(1, (int)sizeof(int8_t));
     EXPECT_EQ(2, (int)sizeof(int16_t));

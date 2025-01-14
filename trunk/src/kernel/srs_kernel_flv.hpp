@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_KERNEL_FLV_HPP
 #define SRS_KERNEL_FLV_HPP
@@ -170,10 +153,10 @@ public:
     // @remark, we use 64bits for large time for jitter detect and hls.
     int64_t timestamp;
 public:
-    // Get the perfered cid(chunk stream id) which sendout over.
+    // Get the prefered cid(chunk stream id) which sendout over.
     // set at decoding, and canbe used for directly send message,
     // For example, dispatch to all connections.
-    int perfer_cid;
+    int prefer_cid;
 public:
     SrsMessageHeader();
     virtual ~SrsMessageHeader();
@@ -247,10 +230,10 @@ public:
     // (1-7) are reserved for protocol control messages.
     // For example, RTMP_MSG_AudioMessage or RTMP_MSG_VideoMessage.
     int8_t message_type;
-    // Get the perfered cid(chunk stream id) which sendout over.
+    // Get the prefered cid(chunk stream id) which sendout over.
     // set at decoding, and canbe used for directly send message,
     // For example, dispatch to all connections.
-    int perfer_cid;
+    int prefer_cid;
 public:
     SrsSharedMessageHeader();
     virtual ~SrsSharedMessageHeader();
@@ -267,7 +250,6 @@ class SrsSharedPtrMessage
 // 4.1. Message Header
 public:
     // The header can shared, only set the timestamp and stream id.
-    // @see https://github.com/ossrs/srs/issues/251
     //SrsSharedMessageHeader header;
     // Four-byte field that contains a timestamp of the message.
     // The 4 bytes are packed in the big-endian order.
@@ -295,7 +277,6 @@ private:
     {
     public:
         // The shared message header.
-        // @see https://github.com/ossrs/srs/issues/251
         SrsSharedMessageHeader header;
         // The actual shared payload.
         char* payload;
@@ -312,8 +293,6 @@ public:
     SrsSharedPtrMessage();
     virtual ~SrsSharedPtrMessage();
 public:
-    // For object cache to reset and reuse it.
-    bool recycle();
     // Create shared ptr message,
     // copy header, manage the payload of msg,
     // set the payload to NULL to prevent double free.
@@ -334,7 +313,7 @@ public:
     // if this or copy deleted, free payload when count is 0, or count--.
     // @remark, assert object is created.
     virtual int count();
-    // check perfer cid and stream id.
+    // check prefer cid and stream id.
     // @return whether stream id already set.
     virtual bool check(int stream_id);
 public:
@@ -357,6 +336,9 @@ public:
 class SrsFlvTransmuxer
 {
 private:
+    bool has_audio_;
+    bool has_video_;
+    bool drop_if_not_match_;
     ISrsWriter* writer;
 private:
     char tag_header[SRS_FLV_TAG_HEADER_SIZE];
@@ -368,6 +350,9 @@ public:
     // @remark user can initialize multiple times to encode multiple flv files.
     // @remark, user must free the @param fw, flv encoder never close/free it.
     virtual srs_error_t initialize(ISrsWriter* fw);
+    // Drop packet if not match FLV header.
+    void set_drop_if_not_match(bool v);
+    bool drop_if_not_match();
 public:
     // Write flv header.
     // Write following:

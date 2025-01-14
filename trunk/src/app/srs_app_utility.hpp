@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_UTILITY_HPP
 #define SRS_APP_UTILITY_HPP
@@ -36,7 +19,7 @@
 
 #include <srs_app_st.hpp>
 #include <srs_kernel_log.hpp>
-#include <srs_service_utility.hpp>
+#include <srs_protocol_utility.hpp>
 
 class SrsKbps;
 class SrsBuffer;
@@ -45,6 +28,7 @@ class SrsJsonObject;
 // Convert level in string to log level in int.
 // @return the log level defined in SrsLogLevel.
 extern SrsLogLevel srs_get_log_level(std::string level);
+extern SrsLogLevel srs_get_log_level_v2(std::string level);
 
 // Build the path according to vhost/app/stream, where replace variables:
 //       [vhost], the vhost of stream.
@@ -71,7 +55,7 @@ extern std::string srs_path_build_timestamp(std::string template_path);
 // @return an int error code.
 extern srs_error_t srs_kill_forced(int& pid);
 
-// Current process resouce usage.
+// Current process resource usage.
 // @see: man getrusage
 class SrsRusage
 {
@@ -693,16 +677,9 @@ extern bool srs_is_boolean(std::string str);
 // Dump summaries for /api/v1/summaries.
 extern void srs_api_dump_summaries(SrsJsonObject* obj);
 
-// Dump string(str in length) to hex, it will process min(limit, length) chars.
-// Append seperator between each elem, and newline when exceed line_limit, '\0' to ignore.
-extern std::string srs_string_dumps_hex(const std::string& str);
-extern std::string srs_string_dumps_hex(const char* str, int length);
-extern std::string srs_string_dumps_hex(const char* str, int length, int limit);
-extern std::string srs_string_dumps_hex(const char* str, int length, int limit, char seperator, int line_limit, char newline);
-
 // Get ENV variable, which may starts with $.
-//      srs_getenv("EIP") === srs_getenv("$EIP")
-extern std::string srs_getenv(std::string key);
+//      srs_getenv("EIP") is srs_getenv("$EIP")
+extern std::string srs_getenv(const std::string& key);
 
 #endif
 

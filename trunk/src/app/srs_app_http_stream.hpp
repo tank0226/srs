@@ -1,55 +1,44 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_HTTP_STREAM_HPP
 #define SRS_APP_HTTP_STREAM_HPP
 
 #include <srs_core.hpp>
-
+#include <srs_app_security.hpp>
 #include <srs_app_http_conn.hpp>
+#include <srs_app_async_call.hpp>
+
+#include <vector>
 
 class SrsAacTransmuxer;
 class SrsMp3Transmuxer;
 class SrsFlvTransmuxer;
 class SrsTsTransmuxer;
+class SrsAsyncCallWorker;
 
 // A cache for HTTP Live Streaming encoder, to make android(weixin) happy.
 class SrsBufferCache : public ISrsCoroutineHandler
 {
 private:
     srs_utime_t fast_cache;
+    SrsServer* server_;
 private:
     SrsMessageQueue* queue;
-    SrsSource* source;
     SrsRequest* req;
     SrsCoroutine* trd;
 public:
-    SrsBufferCache(SrsSource* s, SrsRequest* r);
+    SrsBufferCache(SrsServer* s, SrsRequest* r);
     virtual ~SrsBufferCache();
-    virtual srs_error_t update(SrsSource* s, SrsRequest* r);
+    virtual srs_error_t update_auth(SrsRequest* r);
 public:
     virtual srs_error_t start();
-    virtual srs_error_t dump_cache(SrsConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
+    virtual void stop();
+    virtual bool alive();
+    virtual srs_error_t dump_cache(SrsLiveConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
 // Interface ISrsEndlessThreadHandler.
 public:
     virtual srs_error_t cycle();
@@ -72,11 +61,11 @@ public:
     virtual srs_error_t write_metadata(int64_t timestamp, char* data, int size) = 0;
 public:
     // For some stream, for example, mp3 and aac, the audio stream,
-    // we use large gop cache in encoder, for the gop cache of SrsSource is ignore audio.
-    // @return true to use gop cache of encoder; otherwise, use SrsSource.
+    // we use large gop cache in encoder, for the gop cache of SrsLiveSource is ignore audio.
+    // @return true to use gop cache of encoder; otherwise, use SrsLiveSource.
     virtual bool has_cache() = 0;
     // Dumps the cache of encoder to consumer.
-    virtual srs_error_t dump_cache(SrsConsumer* consumer, SrsRtmpJitterAlgorithm jitter) = 0;
+    virtual srs_error_t dump_cache(SrsLiveConsumer* consumer, SrsRtmpJitterAlgorithm jitter) = 0;
 };
 
 // Transmux RTMP to HTTP Live Streaming.
@@ -85,6 +74,9 @@ class SrsFlvStreamEncoder : public ISrsBufferEncoder
 private:
     SrsFlvTransmuxer* enc;
     bool header_written;
+    bool has_audio_;
+    bool has_video_;
+    bool guess_has_av_;
 public:
     SrsFlvStreamEncoder();
     virtual ~SrsFlvStreamEncoder();
@@ -94,13 +86,18 @@ public:
     virtual srs_error_t write_video(int64_t timestamp, char* data, int size);
     virtual srs_error_t write_metadata(int64_t timestamp, char* data, int size);
 public:
+    void set_drop_if_not_match(bool v);
+    void set_has_audio(bool v);
+    void set_has_video(bool v);
+    void set_guess_has_av(bool v);
+public:
     virtual bool has_cache();
-    virtual srs_error_t dump_cache(SrsConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
+    virtual srs_error_t dump_cache(SrsLiveConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
 public:
     // Write the tags in a time.
     virtual srs_error_t write_tags(SrsSharedPtrMessage** msgs, int count);
 private:
-    virtual srs_error_t write_header(bool has_video = true, bool has_audio = true);
+    virtual srs_error_t write_header(bool has_video, bool has_audio);
 };
 
 // Transmux RTMP to HTTP TS Streaming.
@@ -118,7 +115,11 @@ public:
     virtual srs_error_t write_metadata(int64_t timestamp, char* data, int size);
 public:
     virtual bool has_cache();
-    virtual srs_error_t dump_cache(SrsConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
+    virtual srs_error_t dump_cache(SrsLiveConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
+public:
+    void set_has_audio(bool v);
+    void set_has_video(bool v);
+    void set_guess_has_av(bool v);
 };
 
 // Transmux RTMP with AAC stream to HTTP AAC Streaming.
@@ -137,7 +138,7 @@ public:
     virtual srs_error_t write_metadata(int64_t timestamp, char* data, int size);
 public:
     virtual bool has_cache();
-    virtual srs_error_t dump_cache(SrsConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
+    virtual srs_error_t dump_cache(SrsLiveConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
 };
 
 // Transmux RTMP with MP3 stream to HTTP MP3 Streaming.
@@ -156,7 +157,7 @@ public:
     virtual srs_error_t write_metadata(int64_t timestamp, char* data, int size);
 public:
     virtual bool has_cache();
-    virtual srs_error_t dump_cache(SrsConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
+    virtual srs_error_t dump_cache(SrsLiveConsumer* consumer, SrsRtmpJitterAlgorithm jitter);
 };
 
 // Write stream to http response direclty.
@@ -180,20 +181,29 @@ public:
 
 // HTTP Live Streaming, to transmux RTMP to HTTP FLV or other format.
 // TODO: FIXME: Rename to SrsHttpLive
-class SrsLiveStream : public ISrsHttpHandler
+class SrsLiveStream : public ISrsHttpHandler, public ISrsExpire
 {
 private:
     SrsRequest* req;
-    SrsSource* source;
     SrsBufferCache* cache;
+    SrsSecurity* security_;
+    SrsServer* server_;
+    // For multiple viewers, which means there will more than one alive viewers for a live stream, so we must
+    // use an int value to represent if there is any viewer is alive. We should never do cleanup unless all
+    // viewers closed the connection.
+    std::vector<ISrsExpire*> viewers_;
 public:
-    SrsLiveStream(SrsSource* s, SrsRequest* r, SrsBufferCache* c);
+    SrsLiveStream(SrsServer* s, SrsRequest* r, SrsBufferCache* c);
     virtual ~SrsLiveStream();
-    virtual srs_error_t update(SrsSource* s, SrsRequest* r);
+    virtual srs_error_t update_auth(SrsRequest* r);
 public:
     virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+    virtual bool alive();
+// Interface ISrsExpire
+public:
+    virtual void expire();
 private:
-    virtual srs_error_t do_serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+    virtual srs_error_t do_serve_http(SrsLiveSource* source, SrsLiveConsumer* consumer, ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
     virtual srs_error_t http_hooks_on_play(ISrsHttpMessage* r);
     virtual void http_hooks_on_stop(ISrsHttpMessage* r);
     virtual srs_error_t streaming_send_messages(ISrsBufferEncoder* enc, SrsSharedPtrMessage** msgs, int nb_msgs);
@@ -210,8 +220,6 @@ private:
 public:
     // We will free the request.
     SrsRequest* req;
-    // Shared source.
-    SrsSource* source;
 public:
     // For template, the mount contains variables.
     // For concrete stream, the mount is url to access.
@@ -219,6 +227,9 @@ public:
     
     SrsLiveStream* stream;
     SrsBufferCache* cache;
+
+    // Whether is disposing the entry.
+    bool disposing;
     
     SrsLiveEntry(std::string m);
     virtual ~SrsLiveEntry();
@@ -231,17 +242,18 @@ public:
 
 // The HTTP Live Streaming Server, to serve FLV/TS/MP3/AAC stream.
 // TODO: Support multiple stream.
-class SrsHttpStreamServer : virtual public ISrsReloadHandler
-, virtual public ISrsHttpMatchHijacker
+class SrsHttpStreamServer : public ISrsReloadHandler
+, public ISrsHttpMatchHijacker
 {
 private:
     SrsServer* server;
+    SrsAsyncCallWorker* async_;
 public:
     SrsHttpServeMux mux;
     // The http live streaming template, to create streams.
-    std::map<std::string, SrsLiveEntry*> tflvs;
-    // The http live streaming streams, crote by template.
-    std::map<std::string, SrsLiveEntry*> sflvs;
+    std::map<std::string, SrsLiveEntry*> templateHandlers;
+    // The http live streaming streams, created by template.
+    std::map<std::string, SrsLiveEntry*> streamHandlers;
 public:
     SrsHttpStreamServer(SrsServer* svr);
     virtual ~SrsHttpStreamServer();
@@ -249,18 +261,28 @@ public:
     virtual srs_error_t initialize();
 public:
     // HTTP flv/ts/mp3/aac stream
-    virtual srs_error_t http_mount(SrsSource* s, SrsRequest* r);
-    virtual void http_unmount(SrsSource* s, SrsRequest* r);
-// Interface ISrsReloadHandler.
-public:
-    virtual srs_error_t on_reload_vhost_added(std::string vhost);
-    virtual srs_error_t on_reload_vhost_http_remux_updated(std::string vhost);
+    virtual srs_error_t http_mount(SrsRequest* r);
+    virtual void http_unmount(SrsRequest* r);
 // Interface ISrsHttpMatchHijacker
 public:
     virtual srs_error_t hijack(ISrsHttpMessage* request, ISrsHttpHandler** ph);
 private:
     virtual srs_error_t initialize_flv_streaming();
     virtual srs_error_t initialize_flv_entry(std::string vhost);
+};
+
+class SrsHttpStreamDestroy : public ISrsAsyncCallTask
+{
+private:
+    std::string sid_;
+    std::map<std::string, SrsLiveEntry*>* streamHandlers_;
+    SrsHttpServeMux* mux_;
+public:
+    SrsHttpStreamDestroy(SrsHttpServeMux* mux, std::map<std::string, SrsLiveEntry*>* handlers, std::string sid);
+    virtual ~SrsHttpStreamDestroy();
+public:
+    virtual srs_error_t call();
+    virtual std::string to_string();
 };
 
 #endif

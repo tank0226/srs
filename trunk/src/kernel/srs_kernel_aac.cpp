@@ -1,29 +1,10 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_kernel_aac.hpp>
-
-#if !defined(SRS_EXPORT_LIBRTMP)
 
 // for srs-librtmp, @see https://github.com/ossrs/srs/issues/213
 #ifndef _WIN32
@@ -72,10 +53,9 @@ srs_error_t SrsAacTransmuxer::write_audio(int64_t timestamp, char* data, int siz
     srs_assert(data);
     
     timestamp &= 0x7fffffff;
-    
-    SrsBuffer* stream = new SrsBuffer(data, size);
-    SrsAutoFree(SrsBuffer, stream);
-    
+
+    SrsUniquePtr<SrsBuffer> stream(new SrsBuffer(data, size));
+
     // audio decode
     if (!stream->require(1)) {
         return srs_error_new(ERROR_AAC_DECODE_ERROR, "aac decode audio sound_format failed");
@@ -134,7 +114,6 @@ srs_error_t SrsAacTransmuxer::write_audio(int64_t timestamp, char* data, int siz
     // write the ADTS header.
     // @see ISO_IEC_14496-3-AAC-2001.pdf, page 75,
     //      1.A.2.2 Audio_Data_Transport_Stream frame, ADTS
-    // @see https://github.com/ossrs/srs/issues/212#issuecomment-64145885
     // byte_alignment()
     
     // adts_fixed_header:
@@ -201,6 +180,4 @@ srs_error_t SrsAacTransmuxer::write_audio(int64_t timestamp, char* data, int siz
     
     return err;
 }
-
-#endif
 

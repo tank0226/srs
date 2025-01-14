@@ -1,25 +1,8 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2013-2021 Winlin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_UTEST_KERNEL_HPP
 #define SRS_UTEST_KERNEL_HPP
@@ -30,11 +13,15 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <srs_utest.hpp>
 
 #include <string>
+#include <vector>
+
 #include <srs_kernel_file.hpp>
 #include <srs_kernel_buffer.hpp>
 #include <srs_protocol_stream.hpp>
 #include <srs_kernel_ts.hpp>
+#include <srs_kernel_ps.hpp>
 #include <srs_kernel_stream.hpp>
+#include <srs_kernel_utility.hpp>
 
 class MockSrsFile
 {
@@ -51,6 +38,15 @@ public:
     virtual srs_error_t write(void* data, size_t count, ssize_t* pnwrite);
     virtual srs_error_t read(void* data, size_t count, ssize_t* pnread);
     virtual srs_error_t lseek(off_t offset, int whence, off_t* seeked);
+};
+
+class MockFileRemover
+{
+private:
+    std::string path_;
+public:
+    MockFileRemover(std::string p);
+    virtual ~MockFileRemover();
 };
 
 class MockSrsFileWriter : public SrsFileWriter
@@ -145,6 +141,22 @@ public:
 public:
     virtual srs_error_t on_ts_message(SrsTsMessage* m);
 };
+
+class MockPsHandler : public ISrsPsMessageHandler
+{
+public:
+    std::vector<SrsTsMessage*> msgs_;
+public:
+    MockPsHandler();
+    virtual ~MockPsHandler();
+public:
+    virtual srs_error_t on_ts_message(SrsTsMessage* m);
+    virtual void on_recover_mode(int nn_recover);
+    virtual void on_recover_done(srs_utime_t duration);
+    MockPsHandler* clear();
+};
+
+extern int srs_rbsp_remove_emulation_bytes(SrsBuffer* stream, std::vector<uint8_t>& rbsp);
 
 #endif
 

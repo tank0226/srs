@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_kernel_buffer.hpp>
 
@@ -356,6 +339,10 @@ void SrsBuffer::write_le8bytes(int64_t value)
 
 void SrsBuffer::write_string(string value)
 {
+    if (value.empty()) {
+        return;
+    }
+
     srs_assert(require((int)value.length()));
     
     memcpy(p, value.data(), value.length());
@@ -364,6 +351,10 @@ void SrsBuffer::write_string(string value)
 
 void SrsBuffer::write_bytes(char* data, int size)
 {
+    if (size <= 0) {
+        return;
+    }
+
     srs_assert(require(size));
     
     memcpy(p, data, size);
@@ -388,6 +379,15 @@ bool SrsBitBuffer::empty() {
     return stream->empty();
 }
 
+bool SrsBitBuffer::require_bits(int n)
+{
+    if (n < 0) {
+        return false;
+    }
+
+    return n <= left_bits();
+}
+
 int8_t SrsBitBuffer::read_bit() {
     if (!cb_left) {
         srs_assert(!stream->empty());
@@ -400,3 +400,124 @@ int8_t SrsBitBuffer::read_bit() {
     return v;
 }
 
+int SrsBitBuffer::left_bits()
+{
+    return cb_left + stream->left() * 8;
+}
+
+void SrsBitBuffer::skip_bits(int n)
+{
+    srs_assert(n <= left_bits());
+
+    for (int i = 0; i < n; i++) {
+        read_bit();
+    }
+}
+
+int32_t SrsBitBuffer::read_bits(int n)
+{
+    srs_assert(n <= left_bits());
+
+    int32_t v = 0;
+    for (int i = 0; i < n; i++) {
+        v |= (read_bit() << (n - i - 1));
+    }
+    return v;
+}
+
+int8_t SrsBitBuffer::read_8bits()
+{
+    // FAST_8
+    if (!cb_left) {
+        srs_assert(!stream->empty());
+        return stream->read_1bytes();
+    }
+
+    return read_bits(8);
+}
+
+int16_t SrsBitBuffer::read_16bits()
+{
+    // FAST_16
+    if (!cb_left) {
+        srs_assert(!stream->empty());
+        return stream->read_2bytes();
+    }
+
+    return read_bits(16);
+}
+
+int32_t SrsBitBuffer::read_32bits()
+{
+    // FAST_32
+    if (!cb_left) {
+        srs_assert(!stream->empty());
+        return stream->read_4bytes();
+    }
+
+    return read_bits(32);
+}
+
+srs_error_t SrsBitBuffer::read_bits_ue(uint32_t& v)
+{
+    srs_error_t err = srs_success;
+
+    if (empty()) {
+        return srs_error_new(ERROR_HEVC_NALU_UEV, "empty stream");
+    }
+
+    // ue(v) in 9.2 Parsing process for Exp-Golomb codes
+    // ITU-T-H.265-2021.pdf, page 221.
+    // Syntax elements coded as ue(v), me(v), or se(v) are Exp-Golomb-coded.
+    //      leadingZeroBits = -1;
+    //      for( b = 0; !b; leadingZeroBits++ )
+    //          b = read_bits( 1 )
+    // The variable codeNum is then assigned as follows:
+    //      codeNum = (2<<leadingZeroBits) - 1 + read_bits( leadingZeroBits )
+    int leadingZeroBits = -1;
+    for (int8_t b = 0; !b && !empty(); leadingZeroBits++) {
+        b = read_bit();
+    }
+
+    if (leadingZeroBits >= 31) {
+        return srs_error_new(ERROR_HEVC_NALU_UEV, "%dbits overflow 31bits", leadingZeroBits);
+    }
+
+    v = (1 << leadingZeroBits) - 1;
+    for (int i = 0; i < (int)leadingZeroBits; i++) {
+        if (empty()) {
+            return srs_error_new(ERROR_HEVC_NALU_UEV, "no bytes for leadingZeroBits=%d", leadingZeroBits);
+        }
+
+        uint32_t b = read_bit();
+        v += b << (leadingZeroBits - 1 - i);
+    }
+
+    return err;
+}
+
+srs_error_t SrsBitBuffer::read_bits_se(int32_t& v)
+{
+    srs_error_t err = srs_success;
+
+    if (empty()) {
+        return srs_error_new(ERROR_HEVC_NALU_SEV, "empty stream");
+    }
+
+    // ue(v) in 9.2.1 General Parsing process for Exp-Golomb codes
+    // ITU-T-H.265-2021.pdf, page 221.
+    uint32_t val = 0;
+    if ((err = read_bits_ue(val)) != srs_success) {
+        return srs_error_wrap(err, "read uev");
+    }
+
+    // se(v) in 9.2.2 Mapping process for signed Exp-Golomb codes
+    // ITU-T-H.265-2021.pdf, page 222.
+    if (val & 0x01) {
+        v = (val + 1) / 2;
+    } else {
+        v = -(val / 2);
+    }
+
+    return err;
+}

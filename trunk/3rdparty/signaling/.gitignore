@@ -16,3 +16,6 @@
 
 .format.txt
 objs
+.DS_Store
+.idea
+

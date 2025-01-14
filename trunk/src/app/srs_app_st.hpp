@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_ST_HPP
 #define SRS_APP_ST_HPP
@@ -30,10 +13,12 @@
 
 #include <srs_kernel_log.hpp>
 #include <srs_kernel_error.hpp>
-#include <srs_service_st.hpp>
+#include <srs_protocol_st.hpp>
 #include <srs_protocol_io.hpp>
+#include <srs_protocol_conn.hpp>
 
 class SrsFastCoroutine;
+class SrsExecutorCoroutine;
 
 // Each ST-coroutine must implements this interface,
 // to do the cycle job and handle some events.
@@ -71,7 +56,7 @@ public:
     virtual srs_error_t cycle() = 0;
 };
 
-// Start the object, generally a croutine.
+// Start the object, generally a coroutine.
 class ISrsStartable
 {
 public:
@@ -81,25 +66,54 @@ public:
     virtual srs_error_t start() = 0;
 };
 
-// The corotine object.
-class SrsCoroutine : public ISrsStartable
+// Allow user to interrupt the coroutine, for example, to stop it.
+class ISrsInterruptable
+{
+public:
+    ISrsInterruptable();
+    virtual ~ISrsInterruptable();
+public:
+    virtual void interrupt() = 0;
+    virtual srs_error_t pull() = 0;
+};
+
+// Get the context id.
+class ISrsContextIdSetter
+{
+public:
+    ISrsContextIdSetter();
+    virtual ~ISrsContextIdSetter();
+public:
+    virtual void set_cid(const SrsContextId& cid) = 0;
+};
+
+// Set the context id.
+class ISrsContextIdGetter
+{
+public:
+    ISrsContextIdGetter();
+    virtual ~ISrsContextIdGetter();
+public:
+    virtual const SrsContextId& cid() = 0;
+};
+
+// The coroutine object.
+class SrsCoroutine : public ISrsStartable, public ISrsInterruptable
+    , public ISrsContextIdSetter, public ISrsContextIdGetter
 {
 public:
     SrsCoroutine();
     virtual ~SrsCoroutine();
 public:
     virtual void stop() = 0;
-    virtual void interrupt() = 0;
-    // @return a copy of error, which should be freed by user.
-    //      NULL if not terminated and user should pull again.
-    virtual srs_error_t pull() = 0;
-    virtual const SrsContextId& cid() = 0;
 };
 
 // An empty coroutine, user can default to this object before create any real coroutine.
 // @see https://github.com/ossrs/srs/pull/908
 class SrsDummyCoroutine : public SrsCoroutine
 {
+private:
+    SrsContextId cid_;
 public:
     SrsDummyCoroutine();
     virtual ~SrsDummyCoroutine();
@@ -109,6 +123,7 @@ public:
     virtual void interrupt();
     virtual srs_error_t pull();
     virtual const SrsContextId& cid();
+    virtual void set_cid(const SrsContextId& cid);
 };
 
 // A ST-coroutine is a lightweight thread, just like the goroutine.
@@ -155,13 +170,10 @@ public:
     // @remark Return ERROR_THREAD_TERMINATED when thread terminated normally without error.
     // @remark Return ERROR_THREAD_INTERRUPED when thread is interrupted.
     virtual srs_error_t pull();
-    // Get the context id of thread.
+    // Get and set the context id of thread.
     virtual const SrsContextId& cid();
+    virtual void set_cid(const SrsContextId& cid);
 };
-
-// For utest to mock the thread create.
-typedef void* (*_ST_THREAD_CREATE_PFN)(void *(*start)(void *arg), void *arg, int joinable, int stack_size);
-extern _ST_THREAD_CREATE_PFN _pfn_st_thread_create;
 
 // High performance coroutine.
 class SrsFastCoroutine
@@ -180,10 +192,14 @@ private:
     bool disposed;
     // Cycle done, no need to interrupt it.
     bool cycle_done;
+private:
+    // Sub state in disposed, we need to wait for thread to quit.
+    bool stopping_;
+    SrsContextId stopping_cid_;
 public:
     SrsFastCoroutine(std::string n, ISrsCoroutineHandler* h);
     SrsFastCoroutine(std::string n, ISrsCoroutineHandler* h, SrsContextId cid);
-    ~SrsFastCoroutine();
+    virtual ~SrsFastCoroutine();
 public:
     void set_stack_size(int v);
 public:
@@ -197,9 +213,91 @@ public:
         return srs_error_copy(trd_err);
     }
     const SrsContextId& cid();
+    virtual void set_cid(const SrsContextId& cid);
 private:
     srs_error_t cycle();
     static void* pfn(void* arg);
+};
+
+// Like goroutine sync.WaitGroup.
+class SrsWaitGroup
+{
+private:
+    int nn_;
+    srs_cond_t done_;
+public:
+    SrsWaitGroup();
+    virtual ~SrsWaitGroup();
+public:
+    // When start for n coroutines.
+    void add(int n);
+    // When coroutine is done.
+    void done();
+    // Wait for all coroutine to be done.
+    void wait();
+};
+
+// The callback when executor cycle done.
+class ISrsExecutorHandler
+{
+public:
+    ISrsExecutorHandler();
+    virtual ~ISrsExecutorHandler();
+public:
+    virtual void on_executor_done(ISrsInterruptable* executor) = 0;
+};
+
+// Start a coroutine for resource executor, to execute the handler and delete resource and itself when
+// handler cycle done.
+//
+// Note that the executor will free itself by manager, then free the resource by manager. This is a helper
+// that is used for a goroutine to execute a handler and free itself after the cycle is done.
+//
+// Generally, the handler, resource, and callback generally are the same object. But we do not define a single
+// interface, because shared resource is a special interface.
+//
+// Note that the resource may live longer than executor, because it is shared resource, so you should process
+// the callback. For example, you should never use the executor after it's stopped and deleted.
+//
+// Usage:
+//      ISrsResourceManager* manager = ...;
+//      ISrsResource* resource, ISrsCoroutineHandler* handler, ISrsExecutorHandler* callback = ...; // Resource, handler, and callback are the same object.
+//      SrsExecutorCoroutine* executor = new SrsExecutorCoroutine(manager, resource, handler);
+//      if ((err = executor->start()) != srs_success) {
+//          srs_freep(executor);
+//          return err;
+//      }
+class SrsExecutorCoroutine : public ISrsResource, public ISrsStartable, public ISrsInterruptable
+    , public ISrsContextIdSetter, public ISrsContextIdGetter, public ISrsCoroutineHandler
+{
+private:
+    ISrsResourceManager* manager_;
+    ISrsResource* resource_;
+    ISrsCoroutineHandler* handler_;
+    ISrsExecutorHandler* callback_;
+private:
+    SrsCoroutine* trd_;
+public:
+    SrsExecutorCoroutine(ISrsResourceManager* m, ISrsResource* r, ISrsCoroutineHandler* h, ISrsExecutorHandler* cb);
+    virtual ~SrsExecutorCoroutine();
+// Interface ISrsStartable
+public:
+    virtual srs_error_t start();
+// Interface ISrsInterruptable
+public:
+    virtual void interrupt();
+    virtual srs_error_t pull();
+// Interface ISrsContextId
+public:
+    virtual const SrsContextId& cid();
+    virtual void set_cid(const SrsContextId& cid);
+// Interface ISrsCoroutineHandler
+public:
+    virtual srs_error_t cycle();
+// Interface ISrsResource
+public:
+    virtual const SrsContextId& get_id();
+    virtual std::string desc();
 };
 
 #endif

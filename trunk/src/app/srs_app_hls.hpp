@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_HLS_HPP
 #define SRS_APP_HLS_HPP
@@ -41,7 +24,7 @@ class SrsRtmpJitter;
 class SrsTsContextWriter;
 class SrsRequest;
 class SrsPithyPrint;
-class SrsSource;
+class SrsLiveSource;
 class SrsOriginHub;
 class SrsFileWriter;
 class SrsSimpleStream;
@@ -74,6 +57,8 @@ public:
     virtual ~SrsHlsSegment();
 public:
     void config_cipher(unsigned char* key,unsigned char* iv);
+    // replace the placeholder
+    virtual srs_error_t rename();
 };
 
 // The hls async call: on_hls
@@ -170,8 +155,12 @@ private:
     // The current writing segment.
     SrsHlsSegment* current;
     // The ts context, to keep cc continous between ts.
-    // @see https://github.com/ossrs/srs/issues/375
     SrsTsContext* context;
+private:
+    // Latest audio codec, parsed from stream.
+    SrsAudioCodecId latest_acodec_;
+    // Latest audio codec, parsed from stream.
+    SrsVideoCodecId latest_vcodec_;
 public:
     SrsHlsMuxer();
     virtual ~SrsHlsMuxer();
@@ -182,6 +171,11 @@ public:
     virtual std::string ts_url();
     virtual srs_utime_t duration();
     virtual int deviation();
+public:
+    SrsAudioCodecId latest_acodec();
+    void set_latest_acodec(SrsAudioCodecId v);
+    SrsVideoCodecId latest_vcodec();
+    void set_latest_vcodec(SrsVideoCodecId v);
 public:
     // Initialize the hls muxer.
     virtual srs_error_t initialize();
@@ -204,13 +198,16 @@ public:
     virtual bool wait_keyframe();
     // Whether segment absolutely overflow, for pure audio to reap segment,
     // that is whether the current segment duration>=2*(the segment in config)
-    // @see https://github.com/ossrs/srs/issues/151#issuecomment-71155184
     virtual bool is_segment_absolutely_overflow();
 public:
     // Whether current hls muxer is pure audio mode.
     virtual bool pure_audio();
     virtual srs_error_t flush_audio(SrsTsMessageCache* cache);
     virtual srs_error_t flush_video(SrsTsMessageCache* cache);
+    // When flushing video or audio, we update the duration. But, we should also update the
+    // duration before closing the segment. Keep in mind that it's fine to update the duration
+    // several times using the same dts timestamp.
+    void update_duration(uint64_t dts);
     // Close segment(ts).
     virtual srs_error_t segment_close();
 private:
@@ -282,8 +279,16 @@ private:
     SrsHlsController* controller;
 private:
     SrsRequest* req;
+    // Whether the HLS is enabled.
     bool enabled;
+    // Whether the HLS stream is able to be disposed.
     bool disposable;
+    // Whether the HLS stream is unpublishing.
+    bool unpublishing_;
+    // Whether requires HLS to do reload asynchronously.
+    bool async_reload_;
+    bool reloading_;
+    // To detect heartbeat and dispose it if configured.
     srs_utime_t last_update_time;
 private:
     // If the diff=dts-previous_audio_dts is about 23,
@@ -301,8 +306,14 @@ public:
     SrsHls();
     virtual ~SrsHls();
 public:
+    virtual void async_reload();
+private:
+    srs_error_t reload();
+    srs_error_t do_reload(int *reloading, int *reloaded, int *refreshed);
+public:
     virtual void dispose();
     virtual srs_error_t cycle();
+    srs_utime_t cleanup_delay();
 public:
     // Initialize the hls by handler and source.
     virtual srs_error_t initialize(SrsOriginHub* h, SrsRequest* r);

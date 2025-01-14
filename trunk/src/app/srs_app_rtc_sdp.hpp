@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 John
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_RTC_SDP_HPP
 #define SRS_APP_RTC_SDP_HPP
@@ -53,7 +36,9 @@ public:
     srs_error_t parse_attribute(const std::string& attribute, const std::string& value);
     srs_error_t encode(std::ostringstream& os);
 
-    bool operator=(const SrsSessionInfo& rhs);
+    bool operator==(const SrsSessionInfo& rhs);
+    // user-defined copy assignment (copy-and-swap idiom)
+    SrsSessionInfo& operator=(SrsSessionInfo other);
 public:
     std::string ice_ufrag_;
     std::string ice_pwd_;
@@ -72,11 +57,21 @@ public:
 public:
     srs_error_t encode(std::ostringstream& os);
 public:
+    // See https://webrtchacks.com/sdp-anatomy/
     uint32_t ssrc_;
+    // See https://webrtchacks.com/sdp-anatomy/
+    // a=ssrc:3570614608 cname:4TOk42mSjXCkVIa6
     std::string cname_;
+    // See https://webrtchacks.com/sdp-anatomy/
+    // a=ssrc:3570614608 msid:lgsCFqt9kN2fVKw5wg3NKqGdATQoltEwOdMS 35429d94-5637-4686-9ecd-7d0622261ce8
+    // a=ssrc:3570614608 msid:{msid_} {msid_tracker_}
     std::string msid_;
     std::string msid_tracker_;
+    // See https://webrtchacks.com/sdp-anatomy/
+    // a=ssrc:3570614608 mslabel:lgsCFqt9kN2fVKw5wg3NKqGdATQoltEwOdMS
     std::string mslabel_;
+    // See https://webrtchacks.com/sdp-anatomy/
+    // a=ssrc:3570614608 label:35429d94-5637-4686-9ecd-7d0622261ce8
     std::string label_;
 };
 
@@ -124,6 +119,7 @@ public:
 
 struct SrsCandidate
 {
+    std::string protocol_;
     std::string ip_;
     int port_;
     std::string type_;
@@ -176,6 +172,7 @@ public:
     std::string msid_tracker_;
     std::string protos_;
     std::vector<SrsMediaPayloadType> payload_types_;
+    std::string connection_;
 
     std::vector<SrsCandidate> candidates_;
     std::vector<SrsSSRCGroup> ssrc_groups_;
@@ -199,7 +196,7 @@ public:
     void set_dtls_role(const std::string& dtls_role);
     void set_fingerprint_algo(const std::string& algo);
     void set_fingerprint(const std::string& fingerprint);
-    void add_candidate(const std::string& ip, const int& port, const std::string& type);
+    void add_candidate(const std::string& protocol, const std::string& ip, const int& port, const std::string& type);
 
     std::string get_ice_ufrag() const;
     std::string get_ice_pwd() const;
@@ -212,6 +209,7 @@ private:
     srs_error_t parse_session_name(const std::string& content);
     srs_error_t parse_timing(const std::string& content);
     srs_error_t parse_attribute(const std::string& content);
+    srs_error_t parse_gb28181_ssrc(const std::string& content);
     srs_error_t parse_media_description(const std::string& content);
     srs_error_t parse_attr_group(const std::string& content);
 private:
@@ -235,6 +233,9 @@ public:
     int64_t start_time_;
     int64_t end_time_;
 
+    // Connection data, see https://www.ietf.org/rfc/rfc4566.html#section-5.7
+    std::string connection_;
+
     SrsSessionInfo session_info_;
     SrsSessionConfig session_config_;
     SrsSessionConfig session_negotiate_;
@@ -242,6 +243,7 @@ public:
     std::vector<std::string> groups_;
     std::string group_policy_;
 
+    std::string ice_lite_;
     std::string msid_semantic_;
     std::vector<std::string> msids_;
 

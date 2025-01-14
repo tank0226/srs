@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_hds.hpp>
 
@@ -34,10 +17,10 @@
 using namespace std;
 
 #include <srs_app_hds.hpp>
-#include <srs_rtmp_stack.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
 #include <srs_kernel_log.hpp>
 #include <srs_kernel_codec.hpp>
-#include <srs_rtmp_stack.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
 #include <srs_kernel_buffer.hpp>
 #include <srs_core_autofree.hpp>
 #include <srs_kernel_utility.hpp>
@@ -60,10 +43,9 @@ string serialFlv(SrsSharedPtrMessage *msg)
 {
     int size = 15 + msg->size;
     char *byte = new char[size];
-    
-    SrsBuffer *stream = new SrsBuffer(byte, size);
-    SrsAutoFree(SrsBuffer, stream);
-    
+
+    SrsUniquePtr<SrsBuffer> stream(new SrsBuffer(byte, size));
+
     // tag header
     long long dts = msg->timestamp;
     char type = msg->is_video() ? 0x09 : 0x08;
@@ -466,17 +448,16 @@ srs_error_t SrsHds::flush_bootstrap()
     srs_error_t err = srs_success;
     
     int size = 1024*100;
-    
-    char *start_abst = new char[1024*100];
-    SrsAutoFreeA(char, start_abst);
-    
+
+    SrsUniquePtr<char[]> start_abst(new char[1024*100]);
+
     int size_abst = 0;
     char *start_asrt = NULL;
     int size_asrt = 0;
     char *start_afrt = NULL;
     int size_afrt = 0;
     
-    SrsBuffer abst(start_abst, size);
+    SrsBuffer abst(start_abst.get(), size);
     
     // @see video_file_format_spec_v10_1
     // page: 46
@@ -571,7 +552,7 @@ srs_error_t SrsHds::flush_bootstrap()
     abst.write_1bytes(1);
     size_abst += 1;
     
-    start_asrt = start_abst + size_abst;
+    start_asrt = start_abst.get() + size_abst;
     
     // follows by asrt
     abst.write_4bytes(0);
@@ -639,7 +620,7 @@ srs_error_t SrsHds::flush_bootstrap()
     size_abst += 1;
     
     // follows by afrt
-    start_afrt = start_abst + size_abst;
+    start_afrt = start_abst.get() + size_abst;
     
     abst.write_4bytes(0);
     abst.write_string("afrt");
@@ -689,7 +670,7 @@ srs_error_t SrsHds::flush_bootstrap()
     
     update_box(start_afrt, size_afrt);
     size_abst += size_afrt;
-    update_box(start_abst, size_abst);
+    update_box(start_abst.get(), size_abst);
     
     string path = _srs_config->get_hds_path(hds_req->vhost) + "/" + hds_req->app + "/" + hds_req->stream +".abst";
     
@@ -698,7 +679,7 @@ srs_error_t SrsHds::flush_bootstrap()
         return srs_error_new(ERROR_HDS_OPEN_BOOTSTRAP_FAILED, "open bootstrap file failed, path=%s", path.c_str());
     }
     
-    if (write(fd, start_abst, size_abst) != size_abst) {
+    if (write(fd, start_abst.get(), size_abst) != size_abst) {
         close(fd);
         return srs_error_new(ERROR_HDS_WRITE_BOOTSTRAP_FAILED, "write bootstrap file failed, path=", path.c_str());
     }

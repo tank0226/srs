@@ -1,33 +1,32 @@
 
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 Winlin
+//
+// SPDX-License-Identifier: MIT
+//
 
 'use strict';
+
+function SrsError(name, message) {
+    this.name = name;
+    this.message = message;
+    this.stack = (new Error()).stack;
+}
+SrsError.prototype = Object.create(Error.prototype);
+SrsError.prototype.constructor = SrsError;
 
 // Depends on adapter-7.4.0.min.js from https://github.com/webrtc/adapter
 // Async-awat-prmise based SRS RTC Publisher.
 function SrsRtcPublisherAsync() {
     var self = {};
+
+    // https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia
+    self.constraints = {
+        audio: true,
+        video: {
+            width: {ideal: 320, max: 576}
+        }
+    };
 
     // @see https://github.com/rtcdn/rtcdn-draft
     // @url The WebRTC url to play with, for example:
@@ -42,8 +41,8 @@ function SrsRtcPublisherAsync() {
     //      webrtc://r.ossrs.net:11985/live/mystream
     // or set the api server to myapi.domain.com:
     //      webrtc://myapi.domain.com/live/livestream
-    // or set the candidate(ip) of answer:
-    //      webrtc://r.ossrs.net/live/livestream?eip=39.107.238.185
+    // or set the candidate(eip) of answer:
+    //      webrtc://r.ossrs.net/live/livestream?candidate=39.107.238.185
     // or force to access https API:
     //      webrtc://r.ossrs.net/live/livestream?schema=https
     // or use plaintext, without SRTP:
@@ -55,13 +54,20 @@ function SrsRtcPublisherAsync() {
         var conf = self.__internal.prepareUrl(url);
         self.pc.addTransceiver("audio", {direction: "sendonly"});
         self.pc.addTransceiver("video", {direction: "sendonly"});
+        //self.pc.addTransceiver("video", {direction: "sendonly"});
+        //self.pc.addTransceiver("audio", {direction: "sendonly"});
 
-        var stream = await navigator.mediaDevices.getUserMedia(
-            {audio: true, video: {width: {max: 320}}}
-        );
+        if (!navigator.mediaDevices && window.location.protocol === 'http:' && window.location.hostname !== 'localhost') {
+            throw new SrsError('HttpsRequiredError', `Please use HTTPS or localhost to publish, read https://github.com/ossrs/srs/issues/2762#issuecomment-983147576`);
+        }
+        var stream = await navigator.mediaDevices.getUserMedia(self.constraints);
+
         // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
         stream.getTracks().forEach(function (track) {
             self.pc.addTrack(track);
+
+            // Notify about local track when stream is ok.
+            self.ontrack && self.ontrack({track: track});
         });
 
         var offer = await self.pc.createOffer();
@@ -74,28 +80,22 @@ function SrsRtcPublisherAsync() {
             };
             console.log("Generated offer: ", data);
 
-            $.ajax({
-                type: "POST", url: conf.apiUrl, data: JSON.stringify(data),
-                contentType: 'application/json', dataType: 'json'
-            }).done(function (data) {
+            const xhr = new XMLHttpRequest();
+            xhr.onload = function() {
+                if (xhr.readyState !== xhr.DONE) return;
+                if (xhr.status !== 200 && xhr.status !== 201) return reject(xhr);
+                const data = JSON.parse(xhr.responseText);
                 console.log("Got answer: ", data);
-                if (data.code) {
-                    reject(data);
-                    return;
-                }
-
-                resolve(data);
-            }).fail(function (reason) {
-                reject(reason);
-            });
+                return data.code ? reject(xhr) : resolve(data);
+            }
+            xhr.open('POST', conf.apiUrl, true);
+            xhr.setRequestHeader('Content-type', 'application/json');
+            xhr.send(JSON.stringify(data));
         });
         await self.pc.setRemoteDescription(
             new RTCSessionDescription({type: 'answer', sdp: session.sdp})
         );
         session.simulator = conf.schema + '//' + conf.urlObject.server + ':' + conf.port + '/rtc/v1/nack/';
-
-        // Notify about local stream when success.
-        self.onaddstream && self.onaddstream({stream: stream});
 
         return session;
     };
@@ -107,7 +107,10 @@ function SrsRtcPublisherAsync() {
     };
 
     // The callback when got local stream.
-    self.onaddstream = function (event) {
+    // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
+    self.ontrack = function (event) {
+        // Add track to stream of SDK.
+        self.stream.addTrack(event.track);
     };
 
     // Internal APIs.
@@ -131,20 +134,20 @@ function SrsRtcPublisherAsync() {
                 api += '/';
             }
 
-            apiUrl = schema + '//' + urlObject.server + ':' + port + api;
+            var apiUrl = schema + '//' + urlObject.server + ':' + port + api;
             for (var key in urlObject.user_query) {
                 if (key !== 'api' && key !== 'play') {
                     apiUrl += '&' + key + '=' + urlObject.user_query[key];
                 }
             }
             // Replace /rtc/v1/play/&k=v to /rtc/v1/play/?k=v
-            var apiUrl = apiUrl.replace(api + '&', api + '?');
+            apiUrl = apiUrl.replace(api + '&', api + '?');
 
             var streamUrl = urlObject.url;
 
             return {
                 apiUrl: apiUrl, streamUrl: streamUrl, schema: schema, urlObject: urlObject, port: port,
-                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).substr(0, 7)
+                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).slice(0, 7)
             };
         },
         parse: function (url) {
@@ -155,19 +158,19 @@ function SrsRtcPublisherAsync() {
                 .replace("rtc://", "http://");
 
             var vhost = a.hostname;
-            var app = a.pathname.substr(1, a.pathname.lastIndexOf("/") - 1);
-            var stream = a.pathname.substr(a.pathname.lastIndexOf("/") + 1);
+            var app = a.pathname.substring(1, a.pathname.lastIndexOf("/"));
+            var stream = a.pathname.slice(a.pathname.lastIndexOf("/") + 1);
 
             // parse the vhost in the params of app, that srs supports.
             app = app.replace("...vhost...", "?vhost=");
             if (app.indexOf("?") >= 0) {
-                var params = app.substr(app.indexOf("?"));
-                app = app.substr(0, app.indexOf("?"));
+                var params = app.slice(app.indexOf("?"));
+                app = app.slice(0, app.indexOf("?"));
 
                 if (params.indexOf("vhost=") > 0) {
-                    vhost = params.substr(params.indexOf("vhost=") + "vhost=".length);
+                    vhost = params.slice(params.indexOf("vhost=") + "vhost=".length);
                     if (vhost.indexOf("&") > 0) {
-                        vhost = vhost.substr(0, vhost.indexOf("&"));
+                        vhost = vhost.slice(0, vhost.indexOf("&"));
                     }
                 }
             }
@@ -184,11 +187,17 @@ function SrsRtcPublisherAsync() {
             // parse the schema
             var schema = "rtmp";
             if (url.indexOf("://") > 0) {
-                schema = url.substr(0, url.indexOf("://"));
+                schema = url.slice(0, url.indexOf("://"));
             }
 
             var port = a.port;
             if (!port) {
+                // Finger out by webrtc url, if contains http or https port, to overwrite default 1985.
+                if (schema === 'webrtc' && url.indexOf(`webrtc://${a.host}:`) === 0) {
+                    port = (url.indexOf(`webrtc://${a.host}:80`) === 0) ? 80 : 443;
+                }
+
+                // Guess by schema.
                 if (schema === 'http') {
                     port = 80;
                 } else if (schema === 'https') {
@@ -253,6 +262,11 @@ function SrsRtcPublisherAsync() {
 
     self.pc = new RTCPeerConnection(null);
 
+    // To keep api consistent between player and publisher.
+    // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
+    // @see https://webrtc.org/getting-started/media-devices
+    self.stream = new MediaStream();
+
     return self;
 }
 
@@ -266,6 +280,7 @@ function SrsRtcPlayerAsync() {
     //      webrtc://r.ossrs.net/live/livestream
     // or specifies the API port:
     //      webrtc://r.ossrs.net:11985/live/livestream
+    //      webrtc://r.ossrs.net:80/live/livestream
     // or autostart the play:
     //      webrtc://r.ossrs.net/live/livestream?autostart=true
     // or change the app from live to myapp:
@@ -274,8 +289,8 @@ function SrsRtcPlayerAsync() {
     //      webrtc://r.ossrs.net:11985/live/mystream
     // or set the api server to myapi.domain.com:
     //      webrtc://myapi.domain.com/live/livestream
-    // or set the candidate(ip) of answer:
-    //      webrtc://r.ossrs.net/live/livestream?eip=39.107.238.185
+    // or set the candidate(eip) of answer:
+    //      webrtc://r.ossrs.net/live/livestream?candidate=39.107.238.185
     // or force to access https API:
     //      webrtc://r.ossrs.net/live/livestream?schema=https
     // or use plaintext, without SRTP:
@@ -287,6 +302,8 @@ function SrsRtcPlayerAsync() {
         var conf = self.__internal.prepareUrl(url);
         self.pc.addTransceiver("audio", {direction: "recvonly"});
         self.pc.addTransceiver("video", {direction: "recvonly"});
+        //self.pc.addTransceiver("video", {direction: "recvonly"});
+        //self.pc.addTransceiver("audio", {direction: "recvonly"});
 
         var offer = await self.pc.createOffer();
         await self.pc.setLocalDescription(offer);
@@ -298,23 +315,23 @@ function SrsRtcPlayerAsync() {
             };
             console.log("Generated offer: ", data);
 
-            $.ajax({
-                type: "POST", url: conf.apiUrl, data: JSON.stringify(data),
-                contentType:'application/json', dataType: 'json'
-            }).done(function(data) {
+            const xhr = new XMLHttpRequest();
+            xhr.onload = function() {
+                if (xhr.readyState !== xhr.DONE) return;
+                if (xhr.status !== 200 && xhr.status !== 201) return reject(xhr);
+                const data = JSON.parse(xhr.responseText);
                 console.log("Got answer: ", data);
-                if (data.code) {
-                    reject(data); return;
-                }
-
-                resolve(data);
-            }).fail(function(reason){
-                reject(reason);
-            });
+                return data.code ? reject(xhr) : resolve(data);
+            }
+            xhr.open('POST', conf.apiUrl, true);
+            xhr.setRequestHeader('Content-type', 'application/json');
+            xhr.send(JSON.stringify(data));
         });
         await self.pc.setRemoteDescription(
             new RTCSessionDescription({type: 'answer', sdp: session.sdp})
         );
+        session.simulator = conf.schema + '//' + conf.urlObject.server + ':' + conf.port + '/rtc/v1/nack/';
+
         return session;
     };
 
@@ -324,8 +341,12 @@ function SrsRtcPlayerAsync() {
         self.pc = null;
     };
 
-    // The callback when got remote stream.
-    self.onaddstream = function (event) {};
+    // The callback when got remote track.
+    // Note that the onaddstream is deprecated, @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/onaddstream
+    self.ontrack = function (event) {
+        // https://webrtc.org/getting-started/remote-streams
+        self.stream.addTrack(event.track);
+    };
 
     // Internal APIs.
     self.__internal = {
@@ -348,20 +369,20 @@ function SrsRtcPlayerAsync() {
                 api += '/';
             }
 
-            apiUrl = schema + '//' + urlObject.server + ':' + port + api;
+            var apiUrl = schema + '//' + urlObject.server + ':' + port + api;
             for (var key in urlObject.user_query) {
                 if (key !== 'api' && key !== 'play') {
                     apiUrl += '&' + key + '=' + urlObject.user_query[key];
                 }
             }
             // Replace /rtc/v1/play/&k=v to /rtc/v1/play/?k=v
-            var apiUrl = apiUrl.replace(api + '&', api + '?');
+            apiUrl = apiUrl.replace(api + '&', api + '?');
 
             var streamUrl = urlObject.url;
 
             return {
                 apiUrl: apiUrl, streamUrl: streamUrl, schema: schema, urlObject: urlObject, port: port,
-                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).substr(0, 7)
+                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).slice(0, 7)
             };
         },
         parse: function (url) {
@@ -372,19 +393,19 @@ function SrsRtcPlayerAsync() {
                 .replace("rtc://", "http://");
 
             var vhost = a.hostname;
-            var app = a.pathname.substr(1, a.pathname.lastIndexOf("/") - 1);
-            var stream = a.pathname.substr(a.pathname.lastIndexOf("/") + 1);
+            var app = a.pathname.substring(1, a.pathname.lastIndexOf("/"));
+            var stream = a.pathname.slice(a.pathname.lastIndexOf("/") + 1);
 
             // parse the vhost in the params of app, that srs supports.
             app = app.replace("...vhost...", "?vhost=");
             if (app.indexOf("?") >= 0) {
-                var params = app.substr(app.indexOf("?"));
-                app = app.substr(0, app.indexOf("?"));
+                var params = app.slice(app.indexOf("?"));
+                app = app.slice(0, app.indexOf("?"));
 
                 if (params.indexOf("vhost=") > 0) {
-                    vhost = params.substr(params.indexOf("vhost=") + "vhost=".length);
+                    vhost = params.slice(params.indexOf("vhost=") + "vhost=".length);
                     if (vhost.indexOf("&") > 0) {
-                        vhost = vhost.substr(0, vhost.indexOf("&"));
+                        vhost = vhost.slice(0, vhost.indexOf("&"));
                     }
                 }
             }
@@ -401,11 +422,17 @@ function SrsRtcPlayerAsync() {
             // parse the schema
             var schema = "rtmp";
             if (url.indexOf("://") > 0) {
-                schema = url.substr(0, url.indexOf("://"));
+                schema = url.slice(0, url.indexOf("://"));
             }
 
             var port = a.port;
             if (!port) {
+                // Finger out by webrtc url, if contains http or https port, to overwrite default 1985.
+                if (schema === 'webrtc' && url.indexOf(`webrtc://${a.host}:`) === 0) {
+                    port = (url.indexOf(`webrtc://${a.host}:80`) === 0) ? 80 : 443;
+                }
+
+                // Guess by schema.
                 if (schema === 'http') {
                     port = 80;
                 } else if (schema === 'https') {
@@ -469,9 +496,190 @@ function SrsRtcPlayerAsync() {
     };
 
     self.pc = new RTCPeerConnection(null);
-    self.pc.onaddstream = function (event) {
-        if (self.onaddstream) {
-            self.onaddstream(event);
+
+    // Create a stream to add track to the stream, @see https://webrtc.org/getting-started/remote-streams
+    self.stream = new MediaStream();
+
+    // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/ontrack
+    self.pc.ontrack = function(event) {
+        if (self.ontrack) {
+            self.ontrack(event);
+        }
+    };
+
+    return self;
+}
+
+// Depends on adapter-7.4.0.min.js from https://github.com/webrtc/adapter
+// Async-awat-prmise based SRS RTC Publisher by WHIP.
+function SrsRtcWhipWhepAsync() {
+    var self = {};
+
+    // https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia
+    self.constraints = {
+        audio: true,
+        video: {
+            width: {ideal: 320, max: 576}
+        }
+    };
+
+    // See https://datatracker.ietf.org/doc/draft-ietf-wish-whip/
+    // @url The WebRTC url to publish with, for example:
+    //      http://localhost:1985/rtc/v1/whip/?app=live&stream=livestream
+    // @options The options to control playing, supports:
+    //      camera: boolean, whether capture video from camera, default to true.
+    //      screen: boolean, whether capture video from screen, default to false.
+    //      audio: boolean, whether play audio, default to true.
+    self.publish = async function (url, options) {
+        if (url.indexOf('/whip/') === -1) throw new Error(`invalid WHIP url ${url}`);
+        const hasAudio = options?.audio ?? true;
+        const useCamera = options?.camera ?? true;
+        const useScreen = options?.screen ?? false;
+
+        if (!hasAudio && !useCamera && !useScreen) throw new Error(`The camera, screen and audio can't be false at the same time`);
+
+        if (hasAudio) {
+            self.pc.addTransceiver("audio", {direction: "sendonly"});
+        } else {
+            self.constraints.audio = false;
+        }
+
+        if (useCamera || useScreen) {
+            self.pc.addTransceiver("video", {direction: "sendonly"});
+        }
+
+        if (!useCamera) {
+            self.constraints.video = false;
+        }
+
+        if (!navigator.mediaDevices && window.location.protocol === 'http:' && window.location.hostname !== 'localhost') {
+            throw new SrsError('HttpsRequiredError', `Please use HTTPS or localhost to publish, read https://github.com/ossrs/srs/issues/2762#issuecomment-983147576`);
+        }
+
+        if (useScreen) {
+            const displayStream = await navigator.mediaDevices.getDisplayMedia({
+                video: true
+            });
+            // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
+            displayStream.getTracks().forEach(function (track) {
+                self.pc.addTrack(track);
+				// Notify about local track when stream is ok.
+                self.ontrack && self.ontrack({track: track});
+            });
+        }
+
+       if (useCamera || hasAudio) {
+            const userStream = await navigator.mediaDevices.getUserMedia(self.constraints);
+
+            userStream.getTracks().forEach(function (track) {
+                self.pc.addTrack(track);
+                // Notify about local track when stream is ok.
+                self.ontrack && self.ontrack({track: track});
+            });
+       }
+
+        var offer = await self.pc.createOffer();
+        await self.pc.setLocalDescription(offer);
+        const answer = await new Promise(function (resolve, reject) {
+            console.log(`Generated offer: ${offer.sdp}`);
+
+            const xhr = new XMLHttpRequest();
+            xhr.onload = function() {
+                if (xhr.readyState !== xhr.DONE) return;
+                if (xhr.status !== 200 && xhr.status !== 201) return reject(xhr);
+                const data = xhr.responseText;
+                console.log("Got answer: ", data);
+                return data.code ? reject(xhr) : resolve(data);
+            }
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-type', 'application/sdp');
+            xhr.send(offer.sdp);
+        });
+        await self.pc.setRemoteDescription(
+            new RTCSessionDescription({type: 'answer', sdp: answer})
+        );
+
+        return self.__internal.parseId(url, offer.sdp, answer);
+    };
+
+    // See https://datatracker.ietf.org/doc/draft-ietf-wish-whip/
+    // @url The WebRTC url to play with, for example:
+    //      http://localhost:1985/rtc/v1/whep/?app=live&stream=livestream
+    // @options The options to control playing, supports:
+    //      videoOnly: boolean, whether only play video, default to false.
+    //      audioOnly: boolean, whether only play audio, default to false.
+    self.play = async function(url, options) {
+        if (url.indexOf('/whip-play/') === -1 && url.indexOf('/whep/') === -1) throw new Error(`invalid WHEP url ${url}`);
+        if (options?.videoOnly && options?.audioOnly) throw new Error(`The videoOnly and audioOnly in options can't be true at the same time`);
+
+        if (!options?.videoOnly) self.pc.addTransceiver("audio", {direction: "recvonly"});
+        if (!options?.audioOnly) self.pc.addTransceiver("video", {direction: "recvonly"});
+
+        var offer = await self.pc.createOffer();
+        await self.pc.setLocalDescription(offer);
+        const answer = await new Promise(function(resolve, reject) {
+            console.log(`Generated offer: ${offer.sdp}`);
+
+            const xhr = new XMLHttpRequest();
+            xhr.onload = function() {
+                if (xhr.readyState !== xhr.DONE) return;
+                if (xhr.status !== 200 && xhr.status !== 201) return reject(xhr);
+                const data = xhr.responseText;
+                console.log("Got answer: ", data);
+                return data.code ? reject(xhr) : resolve(data);
+            }
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-type', 'application/sdp');
+            xhr.send(offer.sdp);
+        });
+        await self.pc.setRemoteDescription(
+            new RTCSessionDescription({type: 'answer', sdp: answer})
+        );
+
+        return self.__internal.parseId(url, offer.sdp, answer);
+    };
+
+    // Close the publisher.
+    self.close = function () {
+        self.pc && self.pc.close();
+        self.pc = null;
+    };
+
+    // The callback when got local stream.
+    // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
+    self.ontrack = function (event) {
+        // Add track to stream of SDK.
+        self.stream.addTrack(event.track);
+    };
+
+    self.pc = new RTCPeerConnection(null);
+
+    // To keep api consistent between player and publisher.
+    // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
+    // @see https://webrtc.org/getting-started/media-devices
+    self.stream = new MediaStream();
+
+    // Internal APIs.
+    self.__internal = {
+        parseId: (url, offer, answer) => {
+            let sessionid = offer.substr(offer.indexOf('a=ice-ufrag:') + 'a=ice-ufrag:'.length);
+            sessionid = sessionid.substr(0, sessionid.indexOf('\n') - 1) + ':';
+            sessionid += answer.substr(answer.indexOf('a=ice-ufrag:') + 'a=ice-ufrag:'.length);
+            sessionid = sessionid.substr(0, sessionid.indexOf('\n'));
+
+            const a = document.createElement("a");
+            a.href = url;
+            return {
+                sessionid: sessionid, // Should be ice-ufrag of answer:offer.
+                simulator: a.protocol + '//' + a.host + '/rtc/v1/nack/',
+            };
+        },
+    };
+
+    // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/ontrack
+    self.pc.ontrack = function(event) {
+        if (self.ontrack) {
+            self.ontrack(event);
         }
     };
 
@@ -483,7 +691,8 @@ function SrsRtcPlayerAsync() {
 function SrsRtcFormatSenders(senders, kind) {
     var codecs = [];
     senders.forEach(function (sender) {
-        sender.getParameters().codecs.forEach(function(c) {
+        var params = sender.getParameters();
+        params && params.codecs && params.codecs.forEach(function(c) {
             if (kind && sender.track.kind !== kind) {
                 return;
             }

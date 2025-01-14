@@ -1,29 +1,11 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_kernel_utility.hpp>
 
-// for srs-librtmp, @see https://github.com/ossrs/srs/issues/213
 #ifndef _WIN32
 #include <unistd.h>
 #include <netdb.h>
@@ -35,6 +17,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #include <vector>
 #include <algorithm>
@@ -45,6 +28,7 @@ using namespace std;
 #include <srs_kernel_error.hpp>
 #include <srs_kernel_buffer.hpp>
 #include <srs_kernel_flv.hpp>
+#include <srs_core_deprecated.hpp>
 
 // this value must:
 // equals to (SRS_SYS_CYCLE_INTERVAL*SRS_SYS_TIME_RESOLUTION_MS_TIMES)*1000
@@ -119,7 +103,7 @@ srs_utime_t srs_get_system_startup_time()
     if (_srs_system_time_startup_time <= 0) {
         srs_update_system_time();
     }
-    
+
     return _srs_system_time_startup_time;
 }
 
@@ -137,7 +121,6 @@ srs_utime_t srs_update_system_time()
         return -1;
     }
     
-    // @see: https://github.com/ossrs/srs/issues/35
     // we must convert the tv_sec/tv_usec to int64_t.
     int64_t now_us = ((int64_t)now.tv_sec) * 1000 * 1000 + (int64_t)now.tv_usec;
     
@@ -157,7 +140,6 @@ srs_utime_t srs_update_system_time()
     diff = srs_max(0, diff);
     if (diff < 0 || diff > 1000 * SYS_TIME_RESOLUTION_US) {
         srs_warn("clock jump, history=%" PRId64 "us, now=%" PRId64 "us, diff=%" PRId64 "us", _srs_system_time_us_cache, now_us, diff);
-        // @see: https://github.com/ossrs/srs/issues/109
         _srs_system_time_startup_time += diff;
     }
     
@@ -175,7 +157,7 @@ string srs_dns_resolve(string host, int& family)
     hints.ai_family = family;
     
     addrinfo* r = NULL;
-    SrsAutoFree(addrinfo, r);
+    SrsAutoFreeH(addrinfo, r, freeaddrinfo);
     if(getaddrinfo(host.c_str(), NULL, &hints, &r)) {
         return "";
     }
@@ -209,7 +191,7 @@ void srs_parse_hostport(string hostport, string& host, int& port)
     if (hostport.find(":") == pos) {
         host = hostport.substr(0, pos);
         string p = hostport.substr(pos + 1);
-        if (!p.empty()) {
+        if (!p.empty() && p != "0") {
             port = ::atoi(p.c_str());
         }
         return;
@@ -224,7 +206,7 @@ void srs_parse_hostport(string hostport, string& host, int& port)
     // For ipv6, [host]:port.
     host = hostport.substr(1, pos - 1);
     string p = hostport.substr(pos + 2);
-    if (!p.empty()) {
+    if (!p.empty() && p != "0") {
         port = ::atoi(p.c_str());
     }
 }
@@ -275,19 +257,34 @@ void srs_parse_endpoint(string hostport, string& ip, int& port)
     }
 }
 
+bool srs_check_ip_addr_valid(string ip)
+{
+    unsigned char buf[sizeof(struct in6_addr)];
+
+    // check ipv4
+    int ret = inet_pton(AF_INET, ip.data(), buf);
+    if (ret > 0) {
+        return true;
+    }
+        
+    ret = inet_pton(AF_INET6, ip.data(), buf);
+    if (ret > 0) {
+        return true;
+    }
+        
+    return false;
+}
+
 string srs_int2str(int64_t value)
 {
-    // len(max int64_t) is 20, plus one "+-."
-    char tmp[22];
-    snprintf(tmp, 22, "%" PRId64, value);
-    return tmp;
+    return srs_fmt("%" PRId64, value);
 }
 
 string srs_float2str(double value)
 {
     // len(max int64_t) is 20, plus one "+-."
-    char tmp[22];
-    snprintf(tmp, 22, "%.2f", value);
+    char tmp[21 + 1];
+    snprintf(tmp, sizeof(tmp), "%.2f", value);
     return tmp;
 }
 
@@ -325,6 +322,7 @@ string srs_string_replace(string str, string old_str, string new_str)
     size_t pos = 0;
     while ((pos = ret.find(old_str, pos)) != std::string::npos) {
         ret = ret.replace(pos, old_str.length(), new_str);
+        pos += new_str.length();
     }
     
     return ret;
@@ -555,6 +553,23 @@ vector<string> srs_string_split(string str, vector<string> seperators)
     return arr;
 }
 
+std::string srs_fmt(const char* fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+
+    static char buf[8192];
+    int r0 = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    string v;
+    if (r0 > 0 && r0 < (int)sizeof(buf)) {
+        v.append(buf, r0);
+    }
+
+    return v;
+}
+
 int srs_do_create_dir_recursively(string dir)
 {
     int ret = ERROR_SUCCESS;
@@ -578,7 +593,6 @@ int srs_do_create_dir_recursively(string dir)
     }
     
     // create curren dir.
-    // for srs-librtmp, @see https://github.com/ossrs/srs/issues/213
 #ifdef _WIN32
     if (::_mkdir(dir.c_str()) < 0) {
 #else
@@ -1043,7 +1057,6 @@ srs_error_t srs_av_base64_encode(std::string plaintext, std::string& cipher)
     cipher.clear();
 
     uint32_t val = 0;
-    int di = 0;
     int si = 0;
     int n = (plaintext.length() / 3) * 3;
     uint8_t* p =  (uint8_t*)plaintext.c_str();
@@ -1057,7 +1070,6 @@ srs_error_t srs_av_base64_encode(std::string plaintext, std::string& cipher)
         cipher += encoder[val&0x3f];
 
         si += 3;
-        di += 4;
     }
 
     int remain = plaintext.length() - si;
@@ -1169,7 +1181,7 @@ int srs_hex_to_data(uint8_t* data, const char* p, int size)
     return size / 2;
 }
 
-int srs_chunk_header_c0(int perfer_cid, uint32_t timestamp, int32_t payload_length, int8_t message_type, int32_t stream_id, char* cache, int nb_cache)
+int srs_chunk_header_c0(int prefer_cid, uint32_t timestamp, int32_t payload_length, int8_t message_type, int32_t stream_id, char* cache, int nb_cache)
 {
     // to directly set the field.
     char* pp = NULL;
@@ -1183,7 +1195,7 @@ int srs_chunk_header_c0(int perfer_cid, uint32_t timestamp, int32_t payload_leng
     }
     
     // write new chunk stream header, fmt is 0
-    *p++ = 0x00 | (perfer_cid & 0x3F);
+    *p++ = 0x00 | (prefer_cid & 0x3F);
     
     // chunk message header, 11 bytes
     // timestamp, 3bytes, big-endian
@@ -1244,7 +1256,7 @@ int srs_chunk_header_c0(int perfer_cid, uint32_t timestamp, int32_t payload_leng
     return (int)(p - cache);
 }
 
-int srs_chunk_header_c3(int perfer_cid, uint32_t timestamp, char* cache, int nb_cache)
+int srs_chunk_header_c3(int prefer_cid, uint32_t timestamp, char* cache, int nb_cache)
 {
     // to directly set the field.
     char* pp = NULL;
@@ -1258,9 +1270,9 @@ int srs_chunk_header_c3(int perfer_cid, uint32_t timestamp, char* cache, int nb_
     }
     
     // write no message header chunk stream, fmt is 3
-    // @remark, if perfer_cid > 0x3F, that is, use 2B/3B chunk header,
+    // @remark, if prefer_cid > 0x3F, that is, use 2B/3B chunk header,
     // SRS will rollback to 1B chunk header.
-    *p++ = 0xC0 | (perfer_cid & 0x3F);
+    *p++ = 0xC0 | (prefer_cid & 0x3F);
     
     // for c0
     // chunk extended timestamp header, 0 or 4 bytes, big-endian

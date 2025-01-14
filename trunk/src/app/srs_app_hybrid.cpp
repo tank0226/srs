@@ -1,33 +1,18 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_hybrid.hpp>
 
 #include <srs_app_server.hpp>
 #include <srs_app_config.hpp>
 #include <srs_kernel_error.hpp>
-#include <srs_service_st.hpp>
+#include <srs_protocol_st.hpp>
 #include <srs_app_utility.hpp>
+#include <srs_app_dvr.hpp>
+#include <srs_app_tencentcloud.hpp>
 
 using namespace std;
 
@@ -40,21 +25,21 @@ extern SrsPps* _srs_pps_conn;
 extern SrsPps* _srs_pps_dispose;
 
 #if defined(SRS_DEBUG) && defined(SRS_DEBUG_STATS)
-extern unsigned long long _st_stat_recvfrom;
-extern unsigned long long _st_stat_recvfrom_eagain;
-extern unsigned long long _st_stat_sendto;
-extern unsigned long long _st_stat_sendto_eagain;
+extern __thread unsigned long long _st_stat_recvfrom;
+extern __thread unsigned long long _st_stat_recvfrom_eagain;
+extern __thread unsigned long long _st_stat_sendto;
+extern __thread unsigned long long _st_stat_sendto_eagain;
 SrsPps* _srs_pps_recvfrom = NULL;
 SrsPps* _srs_pps_recvfrom_eagain = NULL;
 SrsPps* _srs_pps_sendto = NULL;
 SrsPps* _srs_pps_sendto_eagain = NULL;
 
-extern unsigned long long _st_stat_read;
-extern unsigned long long _st_stat_read_eagain;
-extern unsigned long long _st_stat_readv;
-extern unsigned long long _st_stat_readv_eagain;
-extern unsigned long long _st_stat_writev;
-extern unsigned long long _st_stat_writev_eagain;
+extern __thread unsigned long long _st_stat_read;
+extern __thread unsigned long long _st_stat_read_eagain;
+extern __thread unsigned long long _st_stat_readv;
+extern __thread unsigned long long _st_stat_readv_eagain;
+extern __thread unsigned long long _st_stat_writev;
+extern __thread unsigned long long _st_stat_writev_eagain;
 SrsPps* _srs_pps_read = NULL;
 SrsPps* _srs_pps_read_eagain = NULL;
 SrsPps* _srs_pps_readv = NULL;
@@ -62,33 +47,33 @@ SrsPps* _srs_pps_readv_eagain = NULL;
 SrsPps* _srs_pps_writev = NULL;
 SrsPps* _srs_pps_writev_eagain = NULL;
 
-extern unsigned long long _st_stat_recvmsg;
-extern unsigned long long _st_stat_recvmsg_eagain;
-extern unsigned long long _st_stat_sendmsg;
-extern unsigned long long _st_stat_sendmsg_eagain;
+extern __thread unsigned long long _st_stat_recvmsg;
+extern __thread unsigned long long _st_stat_recvmsg_eagain;
+extern __thread unsigned long long _st_stat_sendmsg;
+extern __thread unsigned long long _st_stat_sendmsg_eagain;
 SrsPps* _srs_pps_recvmsg = NULL;
 SrsPps* _srs_pps_recvmsg_eagain = NULL;
 SrsPps* _srs_pps_sendmsg = NULL;
 SrsPps* _srs_pps_sendmsg_eagain = NULL;
 
-extern unsigned long long _st_stat_epoll;
-extern unsigned long long _st_stat_epoll_zero;
-extern unsigned long long _st_stat_epoll_shake;
-extern unsigned long long _st_stat_epoll_spin;
+extern __thread unsigned long long _st_stat_epoll;
+extern __thread unsigned long long _st_stat_epoll_zero;
+extern __thread unsigned long long _st_stat_epoll_shake;
+extern __thread unsigned long long _st_stat_epoll_spin;
 SrsPps* _srs_pps_epoll = NULL;
 SrsPps* _srs_pps_epoll_zero = NULL;
 SrsPps* _srs_pps_epoll_shake = NULL;
 SrsPps* _srs_pps_epoll_spin = NULL;
 
-extern unsigned long long _st_stat_sched_15ms;
-extern unsigned long long _st_stat_sched_20ms;
-extern unsigned long long _st_stat_sched_25ms;
-extern unsigned long long _st_stat_sched_30ms;
-extern unsigned long long _st_stat_sched_35ms;
-extern unsigned long long _st_stat_sched_40ms;
-extern unsigned long long _st_stat_sched_80ms;
-extern unsigned long long _st_stat_sched_160ms;
-extern unsigned long long _st_stat_sched_s;
+extern __thread unsigned long long _st_stat_sched_15ms;
+extern __thread unsigned long long _st_stat_sched_20ms;
+extern __thread unsigned long long _st_stat_sched_25ms;
+extern __thread unsigned long long _st_stat_sched_30ms;
+extern __thread unsigned long long _st_stat_sched_35ms;
+extern __thread unsigned long long _st_stat_sched_40ms;
+extern __thread unsigned long long _st_stat_sched_80ms;
+extern __thread unsigned long long _st_stat_sched_160ms;
+extern __thread unsigned long long _st_stat_sched_s;
 SrsPps* _srs_pps_sched_15ms = NULL;
 SrsPps* _srs_pps_sched_20ms = NULL;
 SrsPps* _srs_pps_sched_25ms = NULL;
@@ -111,11 +96,12 @@ SrsPps* _srs_pps_clock_160ms = NULL;
 SrsPps* _srs_pps_timer_s = NULL;
 
 #if defined(SRS_DEBUG) && defined(SRS_DEBUG_STATS)
-extern int _st_active_count;
-extern unsigned long long _st_stat_thread_run;
-extern unsigned long long _st_stat_thread_idle;
-extern unsigned long long _st_stat_thread_yield;
-extern unsigned long long _st_stat_thread_yield2;
+extern __thread int _st_active_count;
+extern __thread int _st_num_free_stacks;
+extern __thread unsigned long long _st_stat_thread_run;
+extern __thread unsigned long long _st_stat_thread_idle;
+extern __thread unsigned long long _st_stat_thread_yield;
+extern __thread unsigned long long _st_stat_thread_yield2;
 SrsPps* _srs_pps_thread_run = NULL;
 SrsPps* _srs_pps_thread_idle = NULL;
 SrsPps* _srs_pps_thread_yield = NULL;
@@ -150,19 +136,20 @@ SrsHybridServer::SrsHybridServer()
 
 SrsHybridServer::~SrsHybridServer()
 {
-    srs_freep(clock_monitor_);
-
-    srs_freep(timer20ms_);
-    srs_freep(timer100ms_);
-    srs_freep(timer1s_);
-    srs_freep(timer5s_);
-
+    // We must free servers first, because it may depend on the timers of hybrid server.
     vector<ISrsHybridServer*>::iterator it;
     for (it = servers.begin(); it != servers.end(); ++it) {
         ISrsHybridServer* server = *it;
         srs_freep(server);
     }
     servers.clear();
+
+    srs_freep(clock_monitor_);
+
+    srs_freep(timer20ms_);
+    srs_freep(timer100ms_);
+    srs_freep(timer1s_);
+    srs_freep(timer5s_);
 }
 
 void SrsHybridServer::register_server(ISrsHybridServer* svr)
@@ -191,6 +178,21 @@ srs_error_t SrsHybridServer::initialize()
         return srs_error_wrap(err, "start timer");
     }
 
+    // Start the DVR async call.
+    if ((err = _srs_dvr_async->start()) != srs_success) {
+        return srs_error_wrap(err, "dvr async");
+    }
+
+#ifdef SRS_APM
+    // Initialize TencentCloud CLS object.
+    if ((err = _srs_cls->initialize()) != srs_success) {
+        return srs_error_wrap(err, "cls client");
+    }
+    if ((err = _srs_apm->initialize()) != srs_success) {
+        return srs_error_wrap(err, "apm client");
+    }
+#endif
+
     // Register some timers.
     timer20ms_->subscribe(clock_monitor_);
     timer5s_->subscribe(this);
@@ -212,17 +214,20 @@ srs_error_t SrsHybridServer::run()
 {
     srs_error_t err = srs_success;
 
+    // Wait for all servers which need to do cleanup.
+    SrsWaitGroup wg;
+
     vector<ISrsHybridServer*>::iterator it;
     for (it = servers.begin(); it != servers.end(); ++it) {
         ISrsHybridServer* server = *it;
 
-        if ((err = server->run()) != srs_success) {
+        if ((err = server->run(&wg)) != srs_success) {
             return srs_error_wrap(err, "run server");
         }
     }
 
     // Wait for all server to quit.
-    srs_usleep(SRS_UTIME_NO_TIMEOUT);
+    wg.wait();
 
     return err;
 }
@@ -367,37 +372,44 @@ srs_error_t SrsHybridServer::on_timer(srs_utime_t interval)
 #if defined(SRS_DEBUG) && defined(SRS_DEBUG_STATS)
     _srs_pps_thread_run->update(_st_stat_thread_run); _srs_pps_thread_idle->update(_st_stat_thread_idle);
     _srs_pps_thread_yield->update(_st_stat_thread_yield); _srs_pps_thread_yield2->update(_st_stat_thread_yield2);
-    if (_st_active_count > 0 || _srs_pps_thread_run->r10s() || _srs_pps_thread_idle->r10s() || _srs_pps_thread_yield->r10s() || _srs_pps_thread_yield2->r10s()) {
-        snprintf(buf, sizeof(buf), ", co=%d,%d,%d, yield=%d,%d", _st_active_count, _srs_pps_thread_run->r10s(), _srs_pps_thread_idle->r10s(), _srs_pps_thread_yield->r10s(), _srs_pps_thread_yield2->r10s());
+    if (_st_active_count > 0 || _st_num_free_stacks > 0 || _srs_pps_thread_run->r10s() || _srs_pps_thread_idle->r10s() || _srs_pps_thread_yield->r10s() || _srs_pps_thread_yield2->r10s()) {
+        snprintf(buf, sizeof(buf), ", co=%d,%d,%d, stk=%d, yield=%d,%d", _st_active_count, _srs_pps_thread_run->r10s(), _srs_pps_thread_idle->r10s(), _st_num_free_stacks, _srs_pps_thread_yield->r10s(), _srs_pps_thread_yield2->r10s());
         thread_desc = buf;
     }
 #endif
 
     string objs_desc;
-    _srs_pps_objs_rtps->update(); _srs_pps_objs_rraw->update(); _srs_pps_objs_rfua->update(); _srs_pps_objs_rbuf->update(); _srs_pps_objs_msgs->update(); _srs_pps_objs_rothers->update(); _srs_pps_objs_drop->update();
-    if (_srs_pps_objs_rtps->r10s() || _srs_pps_objs_rraw->r10s() || _srs_pps_objs_rfua->r10s() || _srs_pps_objs_rbuf->r10s() || _srs_pps_objs_msgs->r10s() || _srs_pps_objs_rothers->r10s() || _srs_pps_objs_drop->r10s()) {
-        snprintf(buf, sizeof(buf), ", objs=(pkt:%d,raw:%d,fua:%d,msg:%d,oth:%d,buf:%d,drop:%d)",
+#ifdef SRS_RTC
+    _srs_pps_objs_rtps->update(); _srs_pps_objs_rraw->update(); _srs_pps_objs_rfua->update(); _srs_pps_objs_rbuf->update(); _srs_pps_objs_msgs->update(); _srs_pps_objs_rothers->update();
+    if (_srs_pps_objs_rtps->r10s() || _srs_pps_objs_rraw->r10s() || _srs_pps_objs_rfua->r10s() || _srs_pps_objs_rbuf->r10s() || _srs_pps_objs_msgs->r10s() || _srs_pps_objs_rothers->r10s()) {
+        snprintf(buf, sizeof(buf), ", objs=(pkt:%d,raw:%d,fua:%d,msg:%d,oth:%d,buf:%d)",
             _srs_pps_objs_rtps->r10s(), _srs_pps_objs_rraw->r10s(), _srs_pps_objs_rfua->r10s(),
-            _srs_pps_objs_msgs->r10s(), _srs_pps_objs_rothers->r10s(), _srs_pps_objs_rbuf->r10s(), _srs_pps_objs_drop->r10s());
+            _srs_pps_objs_msgs->r10s(), _srs_pps_objs_rothers->r10s(), _srs_pps_objs_rbuf->r10s());
         objs_desc = buf;
     }
+#endif
 
-    string cache_desc;
-    if (_srs_rtp_cache->size() || _srs_rtp_raw_cache->size() || _srs_rtp_fua_cache->size() || _srs_rtp_msg_cache_buffers->size() || _srs_rtp_msg_cache_objs->size()) {
-        snprintf(buf, sizeof(buf), ", cache=(pkt:%d-%dw,raw:%d-%dw,fua:%d-%dw,msg:%d-%dw,buf:%d-%dw)",
-            _srs_rtp_cache->size(), _srs_rtp_cache->capacity()/10000, _srs_rtp_raw_cache->size(), _srs_rtp_raw_cache->capacity()/10000,
-            _srs_rtp_fua_cache->size(), _srs_rtp_fua_cache->capacity()/10000, _srs_rtp_msg_cache_objs->size(), _srs_rtp_msg_cache_objs->capacity()/10000,
-            _srs_rtp_msg_cache_buffers->size(), _srs_rtp_msg_cache_buffers->capacity()/10000);
-        cache_desc = buf;
-    }
-
-    srs_trace("Hybrid cpu=%.2f%%,%dMB%s%s%s%s%s%s%s%s%s%s%s%s",
+    srs_trace("Hybrid cpu=%.2f%%,%dMB%s%s%s%s%s%s%s%s%s%s%s",
         u->percent * 100, memory,
         cid_desc.c_str(), timer_desc.c_str(),
         recvfrom_desc.c_str(), io_desc.c_str(), msg_desc.c_str(),
         epoll_desc.c_str(), sched_desc.c_str(), clock_desc.c_str(),
-        thread_desc.c_str(), free_desc.c_str(), objs_desc.c_str(), cache_desc.c_str()
+        thread_desc.c_str(), free_desc.c_str(), objs_desc.c_str()
     );
+
+#ifdef SRS_APM
+    // Report logs to CLS if enabled.
+    if ((err = _srs_cls->report()) != srs_success) {
+        srs_warn("ignore cls err %s", srs_error_desc(err).c_str());
+        srs_freep(err);
+    }
+
+    // Report logs to APM if enabled.
+    if ((err = _srs_apm->report()) != srs_success) {
+        srs_warn("ignore apm err %s", srs_error_desc(err).c_str());
+        srs_freep(err);
+    }
+#endif
 
     return err;
 }

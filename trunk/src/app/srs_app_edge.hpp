@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_EDGE_HPP
 #define SRS_APP_EDGE_HPP
@@ -27,12 +10,13 @@
 #include <srs_core.hpp>
 
 #include <srs_app_st.hpp>
+#include <srs_core_autofree.hpp>
 
 #include <string>
 
 class SrsStSocket;
 class SrsRtmpServer;
-class SrsSource;
+class SrsLiveSource;
 class SrsRequest;
 class SrsPlayEdge;
 class SrsPublishEdge;
@@ -49,6 +33,7 @@ class SrsHttpClient;
 class ISrsHttpMessage;
 class SrsHttpFileReader;
 class SrsFlvDecoder;
+class ISrsApmSpan;
 
 // The state of edge, auto machine
 enum SrsEdgeState
@@ -88,7 +73,7 @@ public:
 public:
     virtual void selected(std::string& server, int& port) = 0;
     virtual void set_recv_timeout(srs_utime_t tm) = 0;
-    virtual void kbps_sample(const char* label, int64_t age) = 0;
+    virtual void kbps_sample(const char* label, srs_utime_t age) = 0;
 };
 
 class SrsEdgeRtmpUpstream : public SrsEdgeUpstream
@@ -114,7 +99,7 @@ public:
 public:
     virtual void selected(std::string& server, int& port);
     virtual void set_recv_timeout(srs_utime_t tm);
-    virtual void kbps_sample(const char* label, int64_t age);
+    virtual void kbps_sample(const char* label, srs_utime_t age);
 };
 
 class SrsEdgeFlvUpstream : public SrsEdgeUpstream
@@ -146,27 +131,36 @@ public:
 public:
     virtual void selected(std::string& server, int& port);
     virtual void set_recv_timeout(srs_utime_t tm);
-    virtual void kbps_sample(const char* label, int64_t age);
+    virtual void kbps_sample(const char* label, srs_utime_t age);
 };
 
 // The edge used to ingest stream from origin.
 class SrsEdgeIngester : public ISrsCoroutineHandler
 {
 private:
-    SrsSource* source;
+    // Because source references to this object, so we should directly use the source ptr.
+    SrsLiveSource* source_;
+private:
     SrsPlayEdge* edge;
     SrsRequest* req;
     SrsCoroutine* trd;
     SrsLbRoundRobin* lb;
     SrsEdgeUpstream* upstream;
+#ifdef SRS_APM
+    ISrsApmSpan* span_main_;
+#endif
 public:
     SrsEdgeIngester();
     virtual ~SrsEdgeIngester();
 public:
-    virtual srs_error_t initialize(SrsSource* s, SrsPlayEdge* e, SrsRequest* r);
+    virtual srs_error_t initialize(SrsSharedPtr<SrsLiveSource> s, SrsPlayEdge* e, SrsRequest* r);
     virtual srs_error_t start();
     virtual void stop();
     virtual std::string get_curr_origin();
+#ifdef SRS_APM
+    // Get the current main span. Note that it might be NULL.
+    ISrsApmSpan* span();
+#endif
 // Interface ISrsReusableThread2Handler
 public:
     virtual srs_error_t cycle();
@@ -181,7 +175,9 @@ private:
 class SrsEdgeForwarder : public ISrsCoroutineHandler
 {
 private:
-    SrsSource* source;
+    // Because source references to this object, so we should directly use the source ptr.
+    SrsLiveSource* source_;
+private:
     SrsPublishEdge* edge;
     SrsRequest* req;
     SrsCoroutine* trd;
@@ -200,7 +196,7 @@ public:
 public:
     virtual void set_queue_size(srs_utime_t queue_size);
 public:
-    virtual srs_error_t initialize(SrsSource* s, SrsPublishEdge* e, SrsRequest* r);
+    virtual srs_error_t initialize(SrsSharedPtr<SrsLiveSource> s, SrsPublishEdge* e, SrsRequest* r);
     virtual srs_error_t start();
     virtual void stop();
 // Interface ISrsReusableThread2Handler
@@ -225,7 +221,7 @@ public:
     // Always use the req of source,
     // For we assume all client to edge is invalid,
     // if auth open, edge must valid it from origin, then service it.
-    virtual srs_error_t initialize(SrsSource* source, SrsRequest* req);
+    virtual srs_error_t initialize(SrsSharedPtr<SrsLiveSource> source, SrsRequest* req);
     // When client play stream on edge.
     virtual srs_error_t on_client_play();
     // When all client stopped play, disconnect to origin.
@@ -248,7 +244,7 @@ public:
 public:
     virtual void set_queue_size(srs_utime_t queue_size);
 public:
-    virtual srs_error_t initialize(SrsSource* source, SrsRequest* req);
+    virtual srs_error_t initialize(SrsSharedPtr<SrsLiveSource> source, SrsRequest* req);
     virtual bool can_publish();
     // When client publish stream on edge.
     virtual srs_error_t on_client_publish();

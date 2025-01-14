@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_utility.hpp>
 
@@ -70,6 +53,23 @@ SrsLogLevel srs_get_log_level(string level)
     }
 }
 
+SrsLogLevel srs_get_log_level_v2(string level)
+{
+    if ("trace" == level) {
+        return SrsLogLevelVerbose;
+    } else if ("debug" == level) {
+        return SrsLogLevelInfo;
+    } else if ("info" == level) {
+        return SrsLogLevelTrace;
+    } else if ("warn" == level) {
+        return SrsLogLevelWarn;
+    } else if ("error" == level) {
+        return SrsLogLevelError;
+    } else {
+        return SrsLogLevelDisabled;
+    }
+}
+
 string srs_path_build_stream(string template_path, string vhost, string app, string stream)
 {
     std::string path = template_path;
@@ -97,13 +97,14 @@ string srs_path_build_timestamp(string template_path)
     }
     
     // to calendar time
-    struct tm* tm;
+    struct tm now;
+    // Each of these functions returns NULL in case an error was detected. @see https://linux.die.net/man/3/localtime_r
     if (_srs_config->get_utc_time()) {
-        if ((tm = gmtime(&tv.tv_sec)) == NULL) {
+        if (gmtime_r(&tv.tv_sec, &now) == NULL) {
             return path;
         }
     } else {
-        if ((tm = localtime(&tv.tv_sec)) == NULL) {
+        if (localtime_r(&tv.tv_sec, &now) == NULL) {
             return path;
         }
     }
@@ -113,32 +114,32 @@ string srs_path_build_timestamp(string template_path)
     
     // [2006], replace with current year.
     if (true) {
-        snprintf(buf, sizeof(buf), "%04d", 1900 + tm->tm_year);
+        snprintf(buf, sizeof(buf), "%04d", 1900 + now.tm_year);
         path = srs_string_replace(path, "[2006]", buf);
     }
     // [01], replace this const to current month.
     if (true) {
-        snprintf(buf, sizeof(buf), "%02d", 1 + tm->tm_mon);
+        snprintf(buf, sizeof(buf), "%02d", 1 + now.tm_mon);
         path = srs_string_replace(path, "[01]", buf);
     }
     // [02], replace this const to current date.
     if (true) {
-        snprintf(buf, sizeof(buf), "%02d", tm->tm_mday);
+        snprintf(buf, sizeof(buf), "%02d", now.tm_mday);
         path = srs_string_replace(path, "[02]", buf);
     }
     // [15], replace this const to current hour.
     if (true) {
-        snprintf(buf, sizeof(buf), "%02d", tm->tm_hour);
+        snprintf(buf, sizeof(buf), "%02d", now.tm_hour);
         path = srs_string_replace(path, "[15]", buf);
     }
     // [04], repleace this const to current minute.
     if (true) {
-        snprintf(buf, sizeof(buf), "%02d", tm->tm_min);
+        snprintf(buf, sizeof(buf), "%02d", now.tm_min);
         path = srs_string_replace(path, "[04]", buf);
     }
     // [05], repleace this const to current second.
     if (true) {
-        snprintf(buf, sizeof(buf), "%02d", tm->tm_sec);
+        snprintf(buf, sizeof(buf), "%02d", now.tm_sec);
         path = srs_string_replace(path, "[05]", buf);
     }
     // [999], repleace this const to current millisecond.
@@ -329,7 +330,7 @@ SrsProcSystemStat* srs_get_system_proc_stat()
 
 bool get_proc_system_stat(SrsProcSystemStat& r)
 {
-#ifndef SRS_OSX
+#if !defined(SRS_OSX)
     FILE* f = fopen("/proc/stat", "r");
     if (f == NULL) {
         srs_warn("open system cpu stat failed, ignore");
@@ -368,14 +369,15 @@ bool get_proc_system_stat(SrsProcSystemStat& r)
 
 bool get_proc_self_stat(SrsProcSelfStat& r)
 {
-#ifndef SRS_OSX
+#if !defined(SRS_OSX)
     FILE* f = fopen("/proc/self/stat", "r");
     if (f == NULL) {
         srs_warn("open self cpu stat failed, ignore");
         return false;
     }
-    
-    fscanf(f, "%d %32s %c %d %d %d %d "
+
+    // Note that we must read less than the size of r.comm, such as %31s for r.comm is char[32].
+    fscanf(f, "%d %31s %c %d %d %d %d "
            "%d %u %lu %lu %lu %lu "
            "%lu %lu %ld %ld %ld %ld "
            "%ld %ld %llu %lu %ld "
@@ -491,7 +493,7 @@ SrsDiskStat* srs_get_disk_stat()
 
 bool srs_get_disk_vmstat_stat(SrsDiskStat& r)
 {
-#ifndef SRS_OSX
+#if !defined(SRS_OSX) && !defined(SRS_CYGWIN64)
     FILE* f = fopen("/proc/vmstat", "r");
     if (f == NULL) {
         srs_warn("open vmstat failed, ignore");
@@ -523,7 +525,7 @@ bool srs_get_disk_diskstats_stat(SrsDiskStat& r)
     r.ok = true;
     r.sample_time = srsu2ms(srs_update_system_time());
 
-#ifndef SRS_OSX
+#if !defined(SRS_OSX)
     // if disabled, ignore all devices.
     SrsConfDirective* conf = _srs_config->get_stats_disk_device();
     if (conf == NULL) {
@@ -687,7 +689,7 @@ void srs_update_meminfo()
 {
     SrsMemInfo& r = _srs_system_meminfo;
 
-#ifndef SRS_OSX
+#if !defined(SRS_OSX)
     FILE* f = fopen("/proc/meminfo", "r");
     if (f == NULL) {
         srs_warn("open meminfo failed, ignore");
@@ -781,7 +783,7 @@ void srs_update_platform_info()
     
     r.srs_startup_time = srsu2ms(srs_get_system_startup_time());
 
-#ifndef SRS_OSX
+#if !defined(SRS_OSX)
     if (true) {
         FILE* f = fopen("/proc/uptime", "r");
         if (f == NULL) {
@@ -875,7 +877,7 @@ static SrsSnmpUdpStat _srs_snmp_udp_stat;
 
 bool get_udp_snmp_statistic(SrsSnmpUdpStat& r)
 {
-#ifndef SRS_OSX
+#if !defined(SRS_OSX) && !defined(SRS_CYGWIN64)
     if (true) {
         FILE* f = fopen("/proc/net/snmp", "r");
         if (f == NULL) {
@@ -981,7 +983,7 @@ int srs_get_network_devices_count()
 
 void srs_update_network_devices()
 {
-#ifndef SRS_OSX
+#if !defined(SRS_OSX) && !defined(SRS_CYGWIN64)
     if (true) {
         FILE* f = fopen("/proc/net/dev", "r");
         if (f == NULL) {
@@ -1069,7 +1071,7 @@ void srs_update_rtmp_server(int nb_conn, SrsKbps* kbps)
     int nb_tcp_mem = 0;
     int nb_udp4 = 0;
 
-#ifndef SRS_OSX
+#if !defined(SRS_OSX) && !defined(SRS_CYGWIN64)
     if (true) {
         FILE* f = fopen("/proc/net/sockstat", "r");
         if (f == NULL) {
@@ -1108,11 +1110,16 @@ void srs_update_rtmp_server(int nb_conn, SrsKbps* kbps)
     nb_tcp_total = 0;
     nb_tcp_mem = 0;
     nb_udp4 = 0;
+
+    (void)nb_socks;
+    (void)nb_tcp_mem;
+    (void)nb_tcp4_hashed;
+    (void)nb_tcp_orphans;
 #endif
 
     int nb_tcp_estab = 0;
 
-#ifndef SRS_OSX
+#if !defined(SRS_OSX) && !defined(SRS_CYGWIN64)
     if (true) {
         FILE* f = fopen("/proc/net/snmp", "r");
         if (f == NULL) {
@@ -1372,66 +1379,7 @@ void srs_api_dump_summaries(SrsJsonObject* obj)
     sys->set("conn_srs", SrsJsonAny::integer(nrs->nb_conn_srs));
 }
 
-string srs_string_dumps_hex(const std::string& str)
-{
-    return srs_string_dumps_hex(str.c_str(), str.size());
-}
-
-string srs_string_dumps_hex(const char* str, int length)
-{
-    return srs_string_dumps_hex(str, length, INT_MAX);
-}
-
-string srs_string_dumps_hex(const char* str, int length, int limit)
-{
-    return srs_string_dumps_hex(str, length, limit, ' ', 128, '\n');
-}
-
-string srs_string_dumps_hex(const char* str, int length, int limit, char seperator, int line_limit, char newline)
-{
-    // 1 byte trailing '\0'.
-    const int LIMIT = 1024*16 + 1;
-    static char buf[LIMIT];
-
-    int len = 0;
-    for (int i = 0; i < length && i < limit && len < LIMIT; ++i) {
-        int nb = snprintf(buf + len, LIMIT - len, "%02x", (uint8_t)str[i]);
-        if (nb < 0 || nb >= LIMIT - len) {
-            break;
-        }
-        len += nb;
-
-        // Only append seperator and newline when not last byte.
-        if (i < length - 1 && i < limit - 1 && len < LIMIT) {
-            if (seperator) {
-                buf[len++] = seperator;
-            }
-
-            if (newline && line_limit && i > 0 && ((i + 1) % line_limit) == 0) {
-                buf[len++] = newline;
-            }
-        }
-    }
-
-    // Empty string.
-    if (len <= 0) {
-        return "";
-    }
-
-    // If overflow, cut the trailing newline.
-    if (newline && len >= LIMIT - 2 && buf[len - 1] == newline) {
-        len--;
-    }
-
-    // If overflow, cut the trailing seperator.
-    if (seperator && len >= LIMIT - 3 && buf[len - 1] == seperator) {
-        len--;
-    }
-
-    return string(buf, len);
-}
-
-string srs_getenv(string key)
+string srs_getenv(const string& key)
 {
     string ekey = key;
     if (srs_string_starts_with(key, "$")) {
@@ -1440,6 +1388,15 @@ string srs_getenv(string key)
 
     if (ekey.empty()) {
         return "";
+    }
+
+    std::string::iterator it;
+    for (it = ekey.begin(); it != ekey.end(); ++it) {
+        if (*it >= 'a' && *it <= 'z') {
+            *it += ('A' - 'a');
+        } else if (*it == '.') {
+            *it = '_';
+        }
     }
 
     char* value = ::getenv(ekey.c_str());

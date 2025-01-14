@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_FRAGMENT_HPP
 #define SRS_APP_FRAGMENT_HPP
@@ -42,6 +25,8 @@ private:
     srs_utime_t start_dts;
     // Whether current segement contains sequence header.
     bool sequence_header;
+    // The number of this segment, use in dash mpd.
+    uint64_t number_;
 public:
     SrsFragment();
     virtual ~SrsFragment();
@@ -49,6 +34,8 @@ public:
     // Append a frame with dts into fragment.
     // @dts The dts of frame in ms.
     virtual void append(int64_t dts);
+    // Get the start dts of fragment.
+    virtual srs_utime_t get_start_dts();
     // Get the duration of fragment in srs_utime_t.
     virtual srs_utime_t duration();
     // Whether the fragment contains any sequence header.
@@ -71,6 +58,10 @@ public:
     virtual srs_error_t unlink_tmpfile();
     // Rename the temp file to final file.
     virtual srs_error_t rename();
+public:
+    // Get or set the number of this fragment.
+    virtual void set_number(uint64_t n);
+    virtual uint64_t number();
 };
 
 // The fragment window manage a series of fragment.

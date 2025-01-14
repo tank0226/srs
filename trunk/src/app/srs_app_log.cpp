@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_app_log.hpp>
 
@@ -35,6 +18,7 @@
 #include <srs_kernel_error.hpp>
 #include <srs_app_utility.hpp>
 #include <srs_kernel_utility.hpp>
+#include <srs_app_threads.hpp>
 
 // the max size of a line of log.
 #define LOG_MAX_SIZE 8192
@@ -46,12 +30,14 @@
 
 SrsFileLog::SrsFileLog()
 {
-    level = SrsLogLevelTrace;
+    level_ = SrsLogLevelTrace;
     log_data = new char[LOG_MAX_SIZE];
     
     fd = -1;
     log_to_file_tank = false;
     utc = false;
+
+    mutex_ = new SrsThreadMutex();
 }
 
 SrsFileLog::~SrsFileLog()
@@ -66,6 +52,8 @@ SrsFileLog::~SrsFileLog()
     if (_srs_config) {
         _srs_config->unsubscribe(this);
     }
+
+    srs_freep(mutex_);
 }
 
 srs_error_t SrsFileLog::initialize()
@@ -74,8 +62,11 @@ srs_error_t SrsFileLog::initialize()
         _srs_config->subscribe(this);
         
         log_to_file_tank = _srs_config->get_log_tank_file();
-        level = srs_get_log_level(_srs_config->get_log_level());
         utc = _srs_config->get_utc_time();
+
+        std::string level = _srs_config->get_log_level();
+        std::string level_v2 = _srs_config->get_log_level_v2();
+        level_ = level_v2.empty() ? srs_get_log_level(level) : srs_get_log_level_v2(level_v2);
     }
     
     return srs_success;
@@ -94,177 +85,41 @@ void SrsFileLog::reopen()
     open_log_file();
 }
 
-void SrsFileLog::verbose(const char* tag, SrsContextId context_id, const char* fmt, ...)
+void SrsFileLog::log(SrsLogLevel level, const char* tag, const SrsContextId& context_id, const char* fmt, va_list args)
 {
-    if (level > SrsLogLevelVerbose) {
+    if (level < level_ || level >= SrsLogLevelDisabled) {
         return;
     }
-    
+
+    SrsThreadLocker(mutex_);
+
     int size = 0;
-    if (!srs_log_header(log_data, LOG_MAX_SIZE, utc, false, tag, context_id, "Verb", &size)) {
+    bool header_ok = srs_log_header(
+        log_data, LOG_MAX_SIZE, utc, level >= SrsLogLevelWarn, tag, context_id, srs_log_level_strings[level], &size
+    );
+    if (!header_ok) {
         return;
     }
-    
-    va_list ap;
-    va_start(ap, fmt);
-    // we reserved 1 bytes for the new line.
-    size += vsnprintf(log_data + size, LOG_MAX_SIZE - size, fmt, ap);
-    va_end(ap);
-    
-    write_log(fd, log_data, size, SrsLogLevelVerbose);
-}
 
-void SrsFileLog::info(const char* tag, SrsContextId context_id, const char* fmt, ...)
-{
-    if (level > SrsLogLevelInfo) {
+    // Something not expected, drop the log.
+    int r0 = vsnprintf(log_data + size, LOG_MAX_SIZE - size, fmt, args);
+    if (r0 <= 0 || r0 >= LOG_MAX_SIZE - size) {
         return;
     }
-    
-    int size = 0;
-    if (!srs_log_header(log_data, LOG_MAX_SIZE, utc, false, tag, context_id, "Debug", &size)) {
-        return;
-    }
-    
-    va_list ap;
-    va_start(ap, fmt);
-    // we reserved 1 bytes for the new line.
-    size += vsnprintf(log_data + size, LOG_MAX_SIZE - size, fmt, ap);
-    va_end(ap);
-    
-    write_log(fd, log_data, size, SrsLogLevelInfo);
-}
+    size += r0;
 
-void SrsFileLog::trace(const char* tag, SrsContextId context_id, const char* fmt, ...)
-{
-    if (level > SrsLogLevelTrace) {
-        return;
-    }
-    
-    int size = 0;
-    if (!srs_log_header(log_data, LOG_MAX_SIZE, utc, false, tag, context_id, "Trace", &size)) {
-        return;
-    }
-    
-    va_list ap;
-    va_start(ap, fmt);
-    // we reserved 1 bytes for the new line.
-    size += vsnprintf(log_data + size, LOG_MAX_SIZE - size, fmt, ap);
-    va_end(ap);
-    
-    write_log(fd, log_data, size, SrsLogLevelTrace);
-}
+    // Add errno and strerror() if error. Check size to avoid security issue https://github.com/ossrs/srs/issues/1229
+    if (level == SrsLogLevelError && errno != 0 && size < LOG_MAX_SIZE) {
+        r0 = snprintf(log_data + size, LOG_MAX_SIZE - size, "(%s)", strerror(errno));
 
-void SrsFileLog::warn(const char* tag, SrsContextId context_id, const char* fmt, ...)
-{
-    if (level > SrsLogLevelWarn) {
-        return;
+        // Something not expected, drop the log.
+        if (r0 <= 0 || r0 >= LOG_MAX_SIZE - size) {
+            return;
+        }
+        size += r0;
     }
-    
-    int size = 0;
-    if (!srs_log_header(log_data, LOG_MAX_SIZE, utc, true, tag, context_id, "Warn", &size)) {
-        return;
-    }
-    
-    va_list ap;
-    va_start(ap, fmt);
-    // we reserved 1 bytes for the new line.
-    size += vsnprintf(log_data + size, LOG_MAX_SIZE - size, fmt, ap);
-    va_end(ap);
-    
-    write_log(fd, log_data, size, SrsLogLevelWarn);
-}
 
-void SrsFileLog::error(const char* tag, SrsContextId context_id, const char* fmt, ...)
-{
-    if (level > SrsLogLevelError) {
-        return;
-    }
-    
-    int size = 0;
-    if (!srs_log_header(log_data, LOG_MAX_SIZE, utc, true, tag, context_id, "Error", &size)) {
-        return;
-    }
-    
-    va_list ap;
-    va_start(ap, fmt);
-    // we reserved 1 bytes for the new line.
-    size += vsnprintf(log_data + size, LOG_MAX_SIZE - size, fmt, ap);
-    va_end(ap);
-    
-    // add strerror() to error msg.
-    // Check size to avoid security issue https://github.com/ossrs/srs/issues/1229
-    if (errno != 0 && size < LOG_MAX_SIZE) {
-        size += snprintf(log_data + size, LOG_MAX_SIZE - size, "(%s)", strerror(errno));
-    }
-    
-    write_log(fd, log_data, size, SrsLogLevelError);
-}
-
-srs_error_t SrsFileLog::on_reload_utc_time()
-{
-    utc = _srs_config->get_utc_time();
-    
-    return srs_success;
-}
-
-srs_error_t SrsFileLog::on_reload_log_tank()
-{
-    srs_error_t err = srs_success;
-    
-    if (!_srs_config) {
-        return err;
-    }
-    
-    bool tank = log_to_file_tank;
-    log_to_file_tank = _srs_config->get_log_tank_file();
-    
-    if (tank) {
-        return err;
-    }
-    
-    if (!log_to_file_tank) {
-        return err;
-    }
-    
-    if (fd > 0) {
-        ::close(fd);
-    }
-    open_log_file();
-    
-    return err;
-}
-
-srs_error_t SrsFileLog::on_reload_log_level()
-{
-    srs_error_t err = srs_success;
-    
-    if (!_srs_config) {
-        return err;
-    }
-    
-    level = srs_get_log_level(_srs_config->get_log_level());
-    
-    return err;
-}
-
-srs_error_t SrsFileLog::on_reload_log_file()
-{
-    srs_error_t err = srs_success;
-    
-    if (!_srs_config) {
-        return err;
-    }
-    
-    if (!log_to_file_tank) {
-        return err;
-    }
-    
-    if (fd > 0) {
-        ::close(fd);
-    }
-    open_log_file();
-    
-    return err;
+    write_log(fd, log_data, size, level);
 }
 
 void SrsFileLog::write_log(int& fd, char *str_log, int size, int level)

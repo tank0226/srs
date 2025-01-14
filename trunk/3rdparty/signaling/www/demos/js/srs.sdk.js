@@ -2,7 +2,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2013-2021 Winlin
+ * Copyright (c) 2013-2025 Winlin
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -28,6 +28,14 @@
 // Async-awat-prmise based SRS RTC Publisher.
 function SrsRtcPublisherAsync() {
     var self = {};
+
+    // https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia
+    self.constraints = {
+        audio: true,
+        video: {
+            width: {ideal: 320, max: 576}
+        }
+    };
 
     // @see https://github.com/rtcdn/rtcdn-draft
     // @url The WebRTC url to play with, for example:
@@ -56,12 +64,14 @@ function SrsRtcPublisherAsync() {
         self.pc.addTransceiver("audio", {direction: "sendonly"});
         self.pc.addTransceiver("video", {direction: "sendonly"});
 
-        var stream = await navigator.mediaDevices.getUserMedia(
-            {audio: true, video: {width: {max: 320}}}
-        );
+        var stream = await navigator.mediaDevices.getUserMedia(self.constraints);
+
         // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
         stream.getTracks().forEach(function (track) {
             self.pc.addTrack(track);
+
+            // Notify about local track when stream is ok.
+            self.ontrack && self.ontrack({track: track});
         });
 
         var offer = await self.pc.createOffer();
@@ -94,9 +104,6 @@ function SrsRtcPublisherAsync() {
         );
         session.simulator = conf.schema + '//' + conf.urlObject.server + ':' + conf.port + '/rtc/v1/nack/';
 
-        // Notify about local stream when success.
-        self.onaddstream && self.onaddstream({stream: stream});
-
         return session;
     };
 
@@ -107,7 +114,10 @@ function SrsRtcPublisherAsync() {
     };
 
     // The callback when got local stream.
-    self.onaddstream = function (event) {
+    // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
+    self.ontrack = function (event) {
+        // Add track to stream of SDK.
+        self.stream.addTrack(event.track);
     };
 
     // Internal APIs.
@@ -144,7 +154,7 @@ function SrsRtcPublisherAsync() {
 
             return {
                 apiUrl: apiUrl, streamUrl: streamUrl, schema: schema, urlObject: urlObject, port: port,
-                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).substr(0, 7)
+                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).slice(0, 7)
             };
         },
         parse: function (url) {
@@ -155,19 +165,19 @@ function SrsRtcPublisherAsync() {
                 .replace("rtc://", "http://");
 
             var vhost = a.hostname;
-            var app = a.pathname.substr(1, a.pathname.lastIndexOf("/") - 1);
-            var stream = a.pathname.substr(a.pathname.lastIndexOf("/") + 1);
+            var app = a.pathname.substring(1, a.pathname.lastIndexOf("/"));
+            var stream = a.pathname.slice(a.pathname.lastIndexOf("/") + 1);
 
             // parse the vhost in the params of app, that srs supports.
             app = app.replace("...vhost...", "?vhost=");
             if (app.indexOf("?") >= 0) {
-                var params = app.substr(app.indexOf("?"));
-                app = app.substr(0, app.indexOf("?"));
+                var params = app.slice(app.indexOf("?"));
+                app = app.slice(0, app.indexOf("?"));
 
                 if (params.indexOf("vhost=") > 0) {
-                    vhost = params.substr(params.indexOf("vhost=") + "vhost=".length);
+                    vhost = params.slice(params.indexOf("vhost=") + "vhost=".length);
                     if (vhost.indexOf("&") > 0) {
-                        vhost = vhost.substr(0, vhost.indexOf("&"));
+                        vhost = vhost.slice(0, vhost.indexOf("&"));
                     }
                 }
             }
@@ -184,7 +194,7 @@ function SrsRtcPublisherAsync() {
             // parse the schema
             var schema = "rtmp";
             if (url.indexOf("://") > 0) {
-                schema = url.substr(0, url.indexOf("://"));
+                schema = url.slice(0, url.indexOf("://"));
             }
 
             var port = a.port;
@@ -252,6 +262,11 @@ function SrsRtcPublisherAsync() {
     };
 
     self.pc = new RTCPeerConnection(null);
+
+    // To keep api consistent between player and publisher.
+    // @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream#Migrating_to_addTrack
+    // @see https://webrtc.org/getting-started/media-devices
+    self.stream = new MediaStream();
 
     return self;
 }
@@ -315,6 +330,7 @@ function SrsRtcPlayerAsync() {
         await self.pc.setRemoteDescription(
             new RTCSessionDescription({type: 'answer', sdp: session.sdp})
         );
+        session.simulator = conf.schema + '//' + conf.urlObject.server + ':' + conf.port + '/rtc/v1/nack/';
         return session;
     };
 
@@ -324,8 +340,12 @@ function SrsRtcPlayerAsync() {
         self.pc = null;
     };
 
-    // The callback when got remote stream.
-    self.onaddstream = function (event) {};
+    // The callback when got remote track.
+    // Note that the onaddstream is deprecated, @see https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/onaddstream
+    self.ontrack = function (event) {
+        // https://webrtc.org/getting-started/remote-streams
+        self.stream.addTrack(event.track);
+    };
 
     // Internal APIs.
     self.__internal = {
@@ -361,7 +381,7 @@ function SrsRtcPlayerAsync() {
 
             return {
                 apiUrl: apiUrl, streamUrl: streamUrl, schema: schema, urlObject: urlObject, port: port,
-                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).substr(0, 7)
+                tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).slice(0, 7)
             };
         },
         parse: function (url) {
@@ -372,19 +392,19 @@ function SrsRtcPlayerAsync() {
                 .replace("rtc://", "http://");
 
             var vhost = a.hostname;
-            var app = a.pathname.substr(1, a.pathname.lastIndexOf("/") - 1);
-            var stream = a.pathname.substr(a.pathname.lastIndexOf("/") + 1);
+            var app = a.pathname.substring(1, a.pathname.lastIndexOf("/"));
+            var stream = a.pathname.slice(a.pathname.lastIndexOf("/") + 1);
 
             // parse the vhost in the params of app, that srs supports.
             app = app.replace("...vhost...", "?vhost=");
             if (app.indexOf("?") >= 0) {
-                var params = app.substr(app.indexOf("?"));
-                app = app.substr(0, app.indexOf("?"));
+                var params = app.slice(app.indexOf("?"));
+                app = app.slice(0, app.indexOf("?"));
 
                 if (params.indexOf("vhost=") > 0) {
-                    vhost = params.substr(params.indexOf("vhost=") + "vhost=".length);
+                    vhost = params.slice(params.indexOf("vhost=") + "vhost=".length);
                     if (vhost.indexOf("&") > 0) {
-                        vhost = vhost.substr(0, vhost.indexOf("&"));
+                        vhost = vhost.slice(0, vhost.indexOf("&"));
                     }
                 }
             }
@@ -401,7 +421,7 @@ function SrsRtcPlayerAsync() {
             // parse the schema
             var schema = "rtmp";
             if (url.indexOf("://") > 0) {
-                schema = url.substr(0, url.indexOf("://"));
+                schema = url.slice(0, url.indexOf("://"));
             }
 
             var port = a.port;
@@ -469,9 +489,14 @@ function SrsRtcPlayerAsync() {
     };
 
     self.pc = new RTCPeerConnection(null);
-    self.pc.onaddstream = function (event) {
-        if (self.onaddstream) {
-            self.onaddstream(event);
+
+    // Create a stream to add track to the stream, @see https://webrtc.org/getting-started/remote-streams
+    self.stream = new MediaStream();
+
+    // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/ontrack
+    self.pc.ontrack = function(event) {
+        if (self.ontrack) {
+            self.ontrack(event);
         }
     };
 
@@ -483,7 +508,8 @@ function SrsRtcPlayerAsync() {
 function SrsRtcFormatSenders(senders, kind) {
     var codecs = [];
     senders.forEach(function (sender) {
-        sender.getParameters().codecs.forEach(function(c) {
+        var params = sender.getParameters();
+        params && params.codecs && params.codecs.forEach(function(c) {
             if (kind && sender.track.kind !== kind) {
                 return;
             }

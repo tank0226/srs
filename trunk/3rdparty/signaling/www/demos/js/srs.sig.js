@@ -2,7 +2,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2013-2021 Winlin
+ * Copyright (c) 2013-2025 Winlin
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -59,7 +59,7 @@ function SrsRtcSignalingAsync() {
     // The message is a json object.
     self.send = async function (message) {
         return new Promise(function (resolve, reject) {
-            var r = {tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).substr(0, 7), msg: message};
+            var r = {tid: Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).slice(0, 7), msg: message};
             self._internals.msgs[r.tid] = {resolve: resolve, reject: reject};
             self.ws.send(JSON.stringify(r));
         });
@@ -108,7 +108,7 @@ function SrsRtcSignalingParse(location) {
     room = room? room.split('&')[0] : null;
 
     let display = location.href.split('display=')[1];
-    display = display? display.split('&')[0] : Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).toString(16).substr(0, 7);
+    display = display? display.split('&')[0] : Number(parseInt(new Date().getTime()*Math.random()*100)).toString(16).toString(16).slice(0, 7);
 
     let autostart = location.href.split('autostart=')[1];
     autostart = autostart && autostart.split('&')[0] === 'true';
@@ -131,10 +131,10 @@ function SrsRtcSignalingParse(location) {
         }
         query = query.replace('?&', '?');
         if (query.lastIndexOf('?') === query.length - 1) {
-            query = query.substr(0, query.length - 1);
+            query = query.slice(0, query.length - 1);
         }
         if (query.lastIndexOf('&') === query.length - 1) {
-            query = query.substr(0, query.length - 1);
+            query = query.slice(0, query.length - 1);
         }
     }
 

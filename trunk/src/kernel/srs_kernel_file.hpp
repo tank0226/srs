@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_KERNEL_FILE_HPP
 #define SRS_KERNEL_FILE_HPP
@@ -43,12 +26,18 @@ class SrsFileReader;
 class SrsFileWriter : public ISrsWriteSeeker
 {
 private:
-    std::string path;
-    int fd;
+    std::string path_;
+    FILE *fp_;
+    char *buf_;
 public:
     SrsFileWriter();
     virtual ~SrsFileWriter();
 public:
+    /**
+     * set io buf size
+    */
+   virtual srs_error_t set_iobuf_size(int size);
+
     /**
      * open file writer, in truncate mode.
      * @param p a string indicates the path of file to open.
@@ -126,6 +115,17 @@ typedef ssize_t (*srs_write_t)(int fildes, const void* buf, size_t nbyte);
 typedef ssize_t (*srs_read_t)(int fildes, void* buf, size_t nbyte);
 typedef off_t (*srs_lseek_t)(int fildes, off_t offset, int whence);
 typedef int (*srs_close_t)(int fildes);
+
+
+typedef FILE* (*srs_fopen_t)(const char* path, const char* mode);
+typedef size_t (*srs_fwrite_t)(const void* ptr, size_t size, size_t nitems, 
+                             FILE* stream);
+typedef size_t (*srs_fread_t)(void* ptr, size_t size, size_t nitems, 
+                            FILE* stream);                             
+typedef int (*srs_fseek_t)(FILE* stream, long offset, int whence);
+typedef int (*srs_fclose_t)(FILE* stream);
+typedef long (*srs_ftell_t)(FILE* stream);
+typedef int (*srs_setvbuf_t)(FILE* stream, char* buf, int type, size_t size);
 
 #endif
 

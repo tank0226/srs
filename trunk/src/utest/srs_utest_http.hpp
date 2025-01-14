@@ -1,25 +1,8 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2013-2021 Winlin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_UTEST_PROTO_STACK_HPP
 #define SRS_UTEST_PROTO_STACK_HPP
@@ -30,13 +13,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <srs_utest.hpp>
 
 #include <srs_utest_protocol.hpp>
-#include <srs_http_stack.hpp>
-#include <srs_service_http_conn.hpp>
+#include <srs_protocol_http_stack.hpp>
+#include <srs_protocol_http_conn.hpp>
 
 #include <string>
 using namespace std;
 
-class MockResponseWriter : virtual public ISrsHttpResponseWriter, virtual public ISrsHttpHeaderFilter
+class MockResponseWriter : public ISrsHttpResponseWriter, public ISrsHttpHeaderFilter
 {
 public:
     SrsHttpResponseWriter* w;
@@ -54,14 +37,34 @@ public:
     virtual srs_error_t filter(SrsHttpHeader* h);
 };
 
+class MockMSegmentsReader : public ISrsReader
+{
+public:
+    std::vector<string> in_bytes;
+public:
+    MockMSegmentsReader();
+    virtual ~MockMSegmentsReader();
+public:
+    virtual void append(string b);
+    virtual srs_error_t read(void* buf, size_t size, ssize_t* nread);
+};
+
 string mock_http_response(int status, string content);
 string mock_http_response2(int status, string content);
+string mock_http_response4(int status, string content);
+bool is_string_contain(string substr, string str);
 
 #define __MOCK_HTTP_EXPECT_STREQ(status, text, w) \
         EXPECT_STREQ(mock_http_response(status, text).c_str(), HELPER_BUFFER2STR(&w.io.out_buffer).c_str())
 
 #define __MOCK_HTTP_EXPECT_STREQ2(status, text, w) \
         EXPECT_STREQ(mock_http_response2(status, text).c_str(), HELPER_BUFFER2STR(&w.io.out_buffer).c_str())
+
+#define __MOCK_HTTP_EXPECT_STREQ4(status, text, w) \
+        EXPECT_STREQ(mock_http_response4(status, text).c_str(), HELPER_BUFFER2STR(&w.io.out_buffer).c_str())
+
+#define __MOCK_HTTP_EXPECT_STRHAS(status, text, w) \
+        EXPECT_PRED2(is_string_contain, text, HELPER_BUFFER2STR(&w.io.out_buffer).c_str())
 
 #endif
 

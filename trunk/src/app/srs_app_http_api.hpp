@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_HTTP_API_HPP
 #define SRS_APP_HTTP_API_HPP
@@ -41,7 +24,7 @@ class SrsHttpConn;
 
 #include <srs_app_st.hpp>
 #include <srs_app_conn.hpp>
-#include <srs_http_stack.hpp>
+#include <srs_protocol_http_stack.hpp>
 #include <srs_app_reload.hpp>
 #include <srs_app_http_conn.hpp>
 
@@ -185,7 +168,7 @@ public:
     virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsGoApiRaw : virtual public ISrsHttpHandler, virtual public ISrsReloadHandler
+class SrsGoApiRaw : public ISrsHttpHandler, public ISrsReloadHandler
 {
 private:
     SrsServer* server;
@@ -213,15 +196,6 @@ public:
     virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsGoApiPerf : public ISrsHttpHandler
-{
-public:
-    SrsGoApiPerf();
-    virtual ~SrsGoApiPerf();
-public:
-    virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
-};
-
 class SrsGoApiError : public ISrsHttpHandler
 {
 public:
@@ -230,19 +204,6 @@ public:
 public:
     virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
-
-#ifdef SRS_GB28181
-class SrsGoApiGb28181 : public ISrsHttpHandler
-{
-public:
-    SrsGoApiGb28181();
-    virtual ~SrsGoApiGb28181();
-public:
-    virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
-private:
-    virtual srs_error_t do_serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
-};
-#endif
 
 #ifdef SRS_GPERF
 class SrsGoApiTcmalloc : public ISrsHttpHandler
@@ -255,49 +216,45 @@ public:
 };
 #endif
 
-// Handle the HTTP API request.
-class SrsHttpApi : virtual public ISrsStartableConneciton, virtual public ISrsHttpConnOwner
-    , virtual public ISrsReloadHandler
+#ifdef SRS_VALGRIND
+class SrsGoApiValgrind : public ISrsHttpHandler, public ISrsCoroutineHandler
 {
 private:
-    // The manager object to manage the connection.
-    ISrsResourceManager* manager;
-    SrsTcpConnection* skt;
-    SrsSslConnection* ssl;
-    SrsHttpConn* conn;
+    SrsCoroutine* trd_;
+    std::string task_;
 public:
-    SrsHttpApi(bool https, ISrsResourceManager* cm, srs_netfd_t fd, SrsHttpServeMux* m, std::string cip, int port);
-    virtual ~SrsHttpApi();
-// Interface ISrsHttpConnOwner.
+    SrsGoApiValgrind();
+    virtual ~SrsGoApiValgrind();
 public:
-    virtual srs_error_t on_start();
-    virtual srs_error_t on_http_message(ISrsHttpMessage* r, SrsHttpResponseWriter* w);
-    virtual srs_error_t on_message_done(ISrsHttpMessage* r, SrsHttpResponseWriter* w);
-    virtual srs_error_t on_conn_done(srs_error_t r0);
-// Interface ISrsResource.
+    virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+// Interface ISrsCoroutineHandler
 public:
-    virtual std::string desc();
-// Interface ISrsKbpsDelta
+    virtual srs_error_t cycle();
+};
+#endif
+
+#ifdef SRS_SIGNAL_API
+class SrsGoApiSignal : public ISrsHttpHandler
+{
 public:
-    virtual void remark(int64_t* in, int64_t* out);
-// Interface ISrsReloadHandler
+    SrsGoApiSignal();
+    virtual ~SrsGoApiSignal();
 public:
-    virtual srs_error_t on_reload_http_api_crossdomain();
-// Extract APIs from SrsTcpConnection.
-// Interface ISrsStartable
+    virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+};
+#endif
+
+class SrsGoApiMetrics : public ISrsHttpHandler
+{
+private:
+    bool enabled_;
+    std::string label_;
+    std::string tag_;
 public:
-    // Start the client green thread.
-    // when server get a client from listener,
-    // 1. server will create an concrete connection(for instance, RTMP connection),
-    // 2. then add connection to its connection manager,
-    // 3. start the client thread by invoke this start()
-    // when client cycle thread stop, invoke the on_thread_stop(), which will use server
-    // To remove the client by server->remove(this).
-    virtual srs_error_t start();
-// Interface ISrsConnection.
+    SrsGoApiMetrics();
+    virtual ~SrsGoApiMetrics();
 public:
-    virtual std::string remote_ip();
-    virtual const SrsContextId& get_id();
+    virtual srs_error_t serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
 #endif

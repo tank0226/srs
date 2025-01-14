@@ -1,25 +1,8 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2013-2021 Winlin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 #include <srs_utest_amf0.hpp>
 
 #include <string>
@@ -60,13 +43,15 @@ VOID TEST(ProtocolAMF0Test, ScenarioMain)
         //                version: string
         //                srs_sig: string
         SrsAmf0Object* props = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, props);
+        SrsUniquePtr<SrsAmf0Object> props_uptr(props);
+
         props->set("fmsVer", SrsAmf0Any::str("FMS/3,5,3,888"));
         props->set("capabilities", SrsAmf0Any::number(253));
         props->set("mode", SrsAmf0Any::number(123));
         
         SrsAmf0Object* info = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, info);
+        SrsUniquePtr<SrsAmf0Object> info_uptr(info);
+
         info->set("level", SrsAmf0Any::str("info"));
         info->set("code", SrsAmf0Any::str("NetStream.Connnect.Success"));
         info->set("descrption", SrsAmf0Any::str("connected"));
@@ -92,7 +77,7 @@ VOID TEST(ProtocolAMF0Test, ScenarioMain)
         EXPECT_EQ(0x03, bytes[0]);
         EXPECT_EQ(0x09, bytes[nb_bytes - 1]);
     }
-    SrsAutoFree(char, bytes);
+    SrsUniquePtr<char[]> bytes_uptr(bytes);
     
     // decoding amf0 object from bytes
     // when user know the schema
@@ -106,12 +91,12 @@ VOID TEST(ProtocolAMF0Test, ScenarioMain)
         // if user know the schema, for instance, it's an amf0 object,
         // user can use specified object to decoding.
         SrsAmf0Object* props = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, props);
+        SrsUniquePtr<SrsAmf0Object> props_uptr(props);
         EXPECT_EQ(srs_success, props->read(&s));
         
         // user can use specified object to decoding.
         SrsAmf0Object* info = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, info);
+        SrsUniquePtr<SrsAmf0Object> info_uptr(info);
         EXPECT_EQ(srs_success, info->read(&s));
         
         // use the decoded data.
@@ -155,8 +140,8 @@ VOID TEST(ProtocolAMF0Test, ScenarioMain)
         // decoding a amf0 any, for user donot know
         SrsAmf0Any* any = NULL;
         EXPECT_EQ(srs_success, srs_amf0_read_any(&s, &any));
-        SrsAutoFree(SrsAmf0Any, any);
-        
+        SrsUniquePtr<SrsAmf0Any> any_uptr(any);
+
         // for amf0 object
         if (any->is_object()) {
             SrsAmf0Object* obj = any->to_object();
@@ -200,15 +185,15 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
-        
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
+
         EXPECT_EQ(size, SrsAmf0Size::object(o));
     }
     // object: elem
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -218,7 +203,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("age")+SrsAmf0Size::number();
         o->set("age", SrsAmf0Any::number(9));
@@ -228,7 +213,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("email")+SrsAmf0Size::null();
         o->set("email", SrsAmf0Any::null());
@@ -238,7 +223,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("email")+SrsAmf0Size::undefined();
         o->set("email", SrsAmf0Any::undefined());
@@ -248,7 +233,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("sex")+SrsAmf0Size::boolean();
         o->set("sex", SrsAmf0Any::boolean(true));
@@ -260,15 +245,15 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
-        
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
+
         EXPECT_EQ(size, SrsAmf0Size::ecma_array(o));
     }
     // array: elem
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -278,7 +263,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("age")+SrsAmf0Size::number();
         o->set("age", SrsAmf0Any::number(9));
@@ -288,7 +273,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("email")+SrsAmf0Size::null();
         o->set("email", SrsAmf0Any::null());
@@ -298,7 +283,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("email")+SrsAmf0Size::undefined();
         o->set("email", SrsAmf0Any::undefined());
@@ -308,7 +293,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("sex")+SrsAmf0Size::boolean();
         o->set("sex", SrsAmf0Any::boolean(true));
@@ -320,7 +305,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -335,7 +320,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -357,7 +342,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -372,7 +357,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -394,7 +379,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+3;
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -416,7 +401,7 @@ VOID TEST(ProtocolAMF0Test, ApiSize)
     if (true) {
         int size = 1+4+3;
         SrsAmf0EcmaArray* o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         size += SrsAmf0Size::utf8("name")+SrsAmf0Size::str("winlin");
         o->set("name", SrsAmf0Any::str("winlin"));
@@ -445,14 +430,14 @@ VOID TEST(ProtocolAMF0Test, ApiAnyElem)
     // string
     if (true) {
         o = SrsAmf0Any::str();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_string());
         EXPECT_STREQ("", o->to_str().c_str());
     }
     if (true) {
         o = SrsAmf0Any::str("winlin");
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_string());
         EXPECT_STREQ("winlin", o->to_str().c_str());
@@ -461,21 +446,21 @@ VOID TEST(ProtocolAMF0Test, ApiAnyElem)
     // bool
     if (true) {
         o = SrsAmf0Any::boolean();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_boolean());
         EXPECT_FALSE(o->to_boolean());
     }
     if (true) {
         o = SrsAmf0Any::boolean(false);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_boolean());
         EXPECT_FALSE(o->to_boolean());
     }
     if (true) {
         o = SrsAmf0Any::boolean(true);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_boolean());
         EXPECT_TRUE(o->to_boolean());
@@ -484,21 +469,21 @@ VOID TEST(ProtocolAMF0Test, ApiAnyElem)
     // number
     if (true) {
         o = SrsAmf0Any::number();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_number());
         EXPECT_DOUBLE_EQ(0, o->to_number());
     }
     if (true) {
         o = SrsAmf0Any::number(100);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_number());
         EXPECT_DOUBLE_EQ(100, o->to_number());
     }
     if (true) {
         o = SrsAmf0Any::number(-100);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_number());
         EXPECT_DOUBLE_EQ(-100, o->to_number());
@@ -507,7 +492,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyElem)
     // null
     if (true) {
         o = SrsAmf0Any::null();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_null());
     }
@@ -515,7 +500,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyElem)
     // undefined
     if (true) {
         o = SrsAmf0Any::undefined();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         ASSERT_TRUE(NULL != o);
         EXPECT_TRUE(o->is_undefined());
     }
@@ -540,7 +525,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         (s.data() + s.pos())[2] = 0x09;
         
         o = SrsAmf0Any::object_eof();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
 
         HELPER_EXPECT_SUCCESS(o->read(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -555,7 +540,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::object_eof();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -570,7 +555,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::str("winlin");
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -593,7 +578,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::number(10);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -612,7 +597,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::boolean(true);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -629,7 +614,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::boolean(false);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -648,7 +633,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::null();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -667,7 +652,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::undefined();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -686,7 +671,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::str("winlin");
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -696,7 +681,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         SrsAmf0Any* po = NULL;
         EXPECT_EQ(srs_success, srs_amf0_read_any(&s, &po));
         ASSERT_TRUE(NULL != po);
-        SrsAutoFree(SrsAmf0Any, po);
+        SrsUniquePtr<SrsAmf0Any> po_uptr(po);
         ASSERT_TRUE(po->is_string());
         EXPECT_STREQ("winlin", po->to_str().c_str());
     }
@@ -706,7 +691,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::number(10);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -716,7 +701,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         SrsAmf0Any* po = NULL;
         EXPECT_EQ(srs_success, srs_amf0_read_any(&s, &po));
         ASSERT_TRUE(NULL != po);
-        SrsAutoFree(SrsAmf0Any, po);
+        SrsUniquePtr<SrsAmf0Any> po_uptr(po);
         ASSERT_TRUE(po->is_number());
         EXPECT_DOUBLE_EQ(10, po->to_number());
     }
@@ -726,7 +711,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::boolean(true);
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -736,7 +721,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         SrsAmf0Any* po = NULL;
         EXPECT_EQ(srs_success, srs_amf0_read_any(&s, &po));
         ASSERT_TRUE(NULL != po);
-        SrsAutoFree(SrsAmf0Any, po);
+        SrsUniquePtr<SrsAmf0Any> po_uptr(po);
         ASSERT_TRUE(po->is_boolean());
         EXPECT_TRUE(po->to_boolean());
     }
@@ -746,7 +731,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::null();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -756,7 +741,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         SrsAmf0Any* po = NULL;
         EXPECT_EQ(srs_success, srs_amf0_read_any(&s, &po));
         ASSERT_TRUE(NULL != po);
-        SrsAutoFree(SrsAmf0Any, po);
+        SrsUniquePtr<SrsAmf0Any> po_uptr(po);
         ASSERT_TRUE(po->is_null());
     }
 
@@ -765,7 +750,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         s.skip(-1 * s.pos());
         
         o = SrsAmf0Any::undefined();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(o->total_size(), s.pos());
@@ -775,7 +760,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyIO)
         SrsAmf0Any* po = NULL;
         EXPECT_EQ(srs_success, srs_amf0_read_any(&s, &po));
         ASSERT_TRUE(NULL != po);
-        SrsAutoFree(SrsAmf0Any, po);
+        SrsUniquePtr<SrsAmf0Any> po_uptr(po);
         ASSERT_TRUE(po->is_undefined());
     }
     
@@ -860,49 +845,49 @@ VOID TEST(ProtocolAMF0Test, ApiAnyTypeAssert)
     // any convert
     if (true) {
         o = SrsAmf0Any::str();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_string());
     }
     if (true) {
         o = SrsAmf0Any::number();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_number());
     }
     if (true) {
         o = SrsAmf0Any::boolean();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_boolean());
     }
     if (true) {
         o = SrsAmf0Any::null();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_null());
     }
     if (true) {
         o = SrsAmf0Any::undefined();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_undefined());
     }
     if (true) {
         o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_object());
     }
     if (true) {
         o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_ecma_array());
     }
     if (true) {
         o = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         EXPECT_TRUE(o->is_strict_array());
     }
     
     // empty object
     if (true) {
         o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         s.skip(-1 * s.pos());
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(1+3, s.pos());
@@ -911,7 +896,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyTypeAssert)
     // empty ecma array
     if (true) {
         o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         s.skip(-1 * s.pos());
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(1+4+3, s.pos());
@@ -920,7 +905,7 @@ VOID TEST(ProtocolAMF0Test, ApiAnyTypeAssert)
     // strict array
     if (true) {
         o = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0Any, o);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(o);
         s.skip(-1 * s.pos());
         EXPECT_EQ(srs_success, o->write(&s));
         EXPECT_EQ(1+4, s.pos());
@@ -937,7 +922,7 @@ VOID TEST(ProtocolAMF0Test, ApiObjectProps)
     // get/set property
     if (true) {
         o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         EXPECT_TRUE(NULL == o->get_property("name"));
         
@@ -953,7 +938,7 @@ VOID TEST(ProtocolAMF0Test, ApiObjectProps)
     // index property
     if (true) {
         o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         o->set("name", SrsAmf0Any::str("winlin"));
         EXPECT_STREQ("name", o->key_at(0).c_str());
@@ -973,7 +958,7 @@ VOID TEST(ProtocolAMF0Test, ApiObjectProps)
     // ensure property
     if (true) {
         o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         EXPECT_TRUE(NULL == o->ensure_property_string("name"));
         EXPECT_TRUE(NULL == o->ensure_property_number("age"));
@@ -993,7 +978,7 @@ VOID TEST(ProtocolAMF0Test, ApiObjectProps)
     // count
     if (true) {
         o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
         
         EXPECT_EQ(0, o->count());
         
@@ -1018,7 +1003,7 @@ VOID TEST(ProtocolAMF0Test, ApiEcmaArrayProps)
     // get/set property
     if (true) {
         o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         EXPECT_TRUE(NULL == o->get_property("name"));
         
@@ -1034,7 +1019,7 @@ VOID TEST(ProtocolAMF0Test, ApiEcmaArrayProps)
     // index property
     if (true) {
         o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         o->set("name", SrsAmf0Any::str("winlin"));
         EXPECT_STREQ("name", o->key_at(0).c_str());
@@ -1054,7 +1039,7 @@ VOID TEST(ProtocolAMF0Test, ApiEcmaArrayProps)
     // ensure property
     if (true) {
         o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         EXPECT_TRUE(NULL == o->ensure_property_string("name"));
         EXPECT_TRUE(NULL == o->ensure_property_number("age"));
@@ -1074,7 +1059,7 @@ VOID TEST(ProtocolAMF0Test, ApiEcmaArrayProps)
     // count
     if (true) {
         o = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0EcmaArray, o);
+        SrsUniquePtr<SrsAmf0EcmaArray> o_uptr(o);
         
         EXPECT_EQ(0, o->count());
         
@@ -1103,8 +1088,8 @@ VOID TEST(ProtocolAMF0Test, ApiStrictArray)
     // append property
     if (true) {
         o = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0StrictArray, o);
-        
+        SrsUniquePtr<SrsAmf0StrictArray> o_uptr(o);
+
         o->append(SrsAmf0Any::number(100));
         EXPECT_DOUBLE_EQ(100, o->at(0)->to_number());
         
@@ -1118,7 +1103,7 @@ VOID TEST(ProtocolAMF0Test, ApiStrictArray)
     // count
     if (true) {
         o = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0StrictArray, o);
+        SrsUniquePtr<SrsAmf0StrictArray> o_uptr(o);
         
         EXPECT_EQ(0, o->count());
         
@@ -1135,7 +1120,7 @@ VOID TEST(ProtocolAMF0Test, ApiStrictArray)
     // io
     if (true) {
         o = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0StrictArray, o);
+        SrsUniquePtr<SrsAmf0StrictArray> o_uptr(o);
         
         s.skip(-1 * s.pos());
         EXPECT_EQ(srs_success, o->write(&s));
@@ -1148,8 +1133,8 @@ VOID TEST(ProtocolAMF0Test, ApiStrictArray)
     
     if (true) {
         o = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0StrictArray, o);
-        
+        SrsUniquePtr<SrsAmf0StrictArray> o_uptr(o);
+
         o->append(SrsAmf0Any::number(0));
         
         s.skip(-1 * s.pos());
@@ -1164,7 +1149,7 @@ VOID TEST(ProtocolAMF0Test, ApiStrictArray)
 VOID TEST(ProtocolAMF0Test, ObjectObjectObject)
 {
     SrsAmf0Any* obj = SrsAmf0Any::object();
-    SrsAutoFree(SrsAmf0Any, obj);
+    SrsUniquePtr<SrsAmf0Any> o_uptr(obj);
     EXPECT_EQ(0, obj->to_object()->count());
     
     SrsAmf0Any* child1 = SrsAmf0Any::object();
@@ -1192,7 +1177,7 @@ VOID TEST(ProtocolAMF0Test, ObjectObjectObject)
 VOID TEST(ProtocolAMF0Test, EcmaEcmaEcma)
 {
     SrsAmf0Any* arr = SrsAmf0Any::ecma_array();
-    SrsAutoFree(SrsAmf0Any, arr);
+    SrsUniquePtr<SrsAmf0Any> o_uptr(arr);
     EXPECT_EQ(0, arr->to_ecma_array()->count());
     
     SrsAmf0Any* arr1 = SrsAmf0Any::ecma_array();
@@ -1220,7 +1205,7 @@ VOID TEST(ProtocolAMF0Test, EcmaEcmaEcma)
 VOID TEST(ProtocolAMF0Test, StrictStrictStrict)
 {
     SrsAmf0Any* arr = SrsAmf0Any::strict_array();
-    SrsAutoFree(SrsAmf0Any, arr);
+    SrsUniquePtr<SrsAmf0Any> o_uptr(arr);
     EXPECT_EQ(0, arr->to_strict_array()->count());
     
     SrsAmf0Any* arr1 = SrsAmf0Any::strict_array();
@@ -1249,7 +1234,7 @@ VOID TEST(ProtocolAMF0Test, StrictStrictStrict)
 VOID TEST(ProtocolAMF0Test, ObjectEcmaStrict)
 {
     SrsAmf0Any* obj = SrsAmf0Any::object();
-    SrsAutoFree(SrsAmf0Any, obj);
+    SrsUniquePtr<SrsAmf0Any> o_uptr(obj);
     EXPECT_EQ(0, obj->to_object()->count());
     
     SrsAmf0Any* arr1 = SrsAmf0Any::ecma_array();
@@ -1277,7 +1262,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesString)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::str("hello");
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(p);
 
         EXPECT_TRUE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -1304,14 +1289,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesString)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> oo_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -1320,6 +1305,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesString)
         // For copy.
         SrsAmf0Any* cp = p->copy();
         EXPECT_TRUE(string("hello") == cp->to_str());
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
     }
 
     if (true) {
@@ -1407,7 +1393,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesBoolean)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::boolean();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_TRUE(p->is_boolean());
@@ -1433,14 +1419,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesBoolean)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -1449,6 +1435,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesBoolean)
         // For copy.
         SrsAmf0Any* cp = p->copy();
         EXPECT_FALSE(cp->to_boolean());
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
     }
 
     if (true) {
@@ -1496,7 +1483,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesNumber)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::number();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -1530,14 +1517,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesNumber)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -1546,6 +1533,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesNumber)
         // For copy.
         SrsAmf0Any* cp = p->copy();
         EXPECT_TRUE(100.1 == cp->to_number());
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
     }
 
     if (true) {
@@ -1593,7 +1581,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesDate)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::date();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -1615,14 +1603,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesDate)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -1635,7 +1623,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesNull)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::null();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> o_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -1659,14 +1647,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesNull)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -1701,7 +1689,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesUndefined)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::undefined();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -1725,14 +1713,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesUndefined)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -1767,7 +1755,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesObject)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -1792,14 +1780,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesObject)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -1808,6 +1796,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesObject)
         // For copy.
         SrsAmf0Any* cp = p->copy();
         EXPECT_TRUE(NULL != cp->to_object());
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
     }
 
     if (true) {
@@ -1880,7 +1869,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesObject2)
 {
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         SrsAmf0Object* o = p->to_object();
         EXPECT_TRUE(NULL != o);
@@ -1913,7 +1902,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesObject2)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         SrsAmf0StrictArray* o = p->to_strict_array();
         EXPECT_TRUE(NULL != o);
@@ -1938,7 +1927,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesObject2)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         SrsAmf0EcmaArray* o = p->to_ecma_array();
         EXPECT_TRUE(NULL != o);
@@ -1976,7 +1965,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesObjectEOF)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::object_eof();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -1996,14 +1985,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesObjectEOF)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -2011,6 +2000,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesObjectEOF)
         // For copy.
         SrsAmf0Any* cp = p->copy();
         EXPECT_TRUE(cp->is_object_eof());
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
     }
 
     if (true) {
@@ -2066,7 +2056,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesEcmaArray)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -2087,14 +2077,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesEcmaArray)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -2103,6 +2093,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesEcmaArray)
         // For copy.
         SrsAmf0Any* cp = p->copy();
         EXPECT_TRUE(NULL != cp->to_ecma_array());
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
     }
 
     if (true) {
@@ -2193,7 +2184,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesStrictArray)
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
 
         EXPECT_FALSE(p->is_string());
         EXPECT_FALSE(p->is_boolean());
@@ -2214,14 +2205,14 @@ VOID TEST(ProtocolAMF0Test, InterfacesStrictArray)
 
         // For marshal and unmarshal.
         char* bb = new char[p->total_size()];
-        SrsAutoFreeA(char, bb);
+        SrsUniquePtr<char[]> bb_uptr(bb);
         SrsBuffer b(bb, p->total_size());
         HELPER_EXPECT_SUCCESS(p->write(&b));
 
         b.skip(-1 * b.pos());
         SrsAmf0Any* pp = NULL;
-        SrsAutoFree(SrsAmf0Any, pp);
         HELPER_EXPECT_SUCCESS(SrsAmf0Any::discovery(&b, &pp));
+        SrsUniquePtr<SrsAmf0Any> pp_uptr(pp);
 
         b.skip(-1 * b.pos());
         HELPER_EXPECT_SUCCESS(pp->read(&b));
@@ -2230,6 +2221,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesStrictArray)
         // For copy.
         SrsAmf0Any* cp = p->copy();
         EXPECT_TRUE(NULL != cp->to_strict_array());
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
     }
 
     if (true) {
@@ -2318,25 +2310,25 @@ VOID TEST(ProtocolAMF0Test, InterfacesOthers)
 {
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
         EXPECT_FALSE(!p->is_complex_object());
     }
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::object_eof();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
         EXPECT_FALSE(!p->is_complex_object());
     }
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::ecma_array();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
         EXPECT_FALSE(!p->is_complex_object());
     }
 
     if (true) {
         SrsAmf0Any* p = SrsAmf0Any::strict_array();
-        SrsAutoFree(SrsAmf0Any, p);
+        SrsUniquePtr<SrsAmf0Any> p_uptr(p);
         EXPECT_FALSE(!p->is_complex_object());
     }
 }
@@ -2358,7 +2350,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesError)
 
     if (true) {
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
 
         o->set("name", SrsAmf0Any::number(3.0));
         o->set("name", SrsAmf0Any::str("srs"));
@@ -2377,7 +2369,7 @@ VOID TEST(ProtocolAMF0Test, InterfacesError)
 
     if (true) {
         SrsAmf0Object* o = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, o);
+        SrsUniquePtr<SrsAmf0Object> o_uptr(o);
 
         o->set("name", SrsAmf0Any::str("srs"));
         o->set("name", SrsAmf0Any::number(3.0));
@@ -2396,13 +2388,13 @@ VOID TEST(ProtocolAMF0Test, InterfacesError)
 
     if (true) {
         SrsAmf0Object* src = SrsAmf0Any::object();
-        SrsAutoFree(SrsAmf0Object, src);
+        SrsUniquePtr<SrsAmf0Any> src_uptr(src);
 
         src->set("name", SrsAmf0Any::str("srs"));
         src->set("name", SrsAmf0Any::number(3.0));
 
         SrsAmf0Any* cp = src->copy();
-        SrsAutoFree(SrsAmf0Any, cp);
+        SrsUniquePtr<SrsAmf0Any> cp_uptr(cp);
 
         SrsAmf0Object* o = cp->to_object();
 
@@ -2643,6 +2635,72 @@ VOID TEST(ProtocolJSONTest, Dumps)
     }
 }
 
+VOID TEST(ProtocolJSONTest, DumpsSpecialChars)
+{
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("hello");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"hello\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("he\"llo");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"he\\\"llo\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("he\\llo");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"he\\\\llo\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("he\nllo");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"he\\nllo\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("he\tllo");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"he\\tllo\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("he\bllo");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"he\\bllo\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("he\fllo");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"he\\fllo\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("he\rllo");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"he\\rllo\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+
+    if (true) {
+        SrsJsonAny* p = SrsJsonAny::str("hello视频");
+        EXPECT_TRUE(p->is_string());
+        EXPECT_STREQ("\"hello\xE8\xA7\x86\xE9\xA2\x91\"", p->dumps().c_str());
+        srs_freep(p);
+    }
+}
+
 VOID TEST(ProtocolJSONTest, Parse)
 {
     if (true) {
@@ -2703,7 +2761,7 @@ VOID TEST(ProtocolJSONTest, Parse)
 VOID TEST(ProtocolJSONTest, ObjectAPI)
 {
     SrsJsonObject* p = SrsJsonAny::object();
-    SrsAutoFree(SrsJsonObject, p);
+    SrsUniquePtr<SrsJsonObject> p_uptr(p);
 
     p->set("id", SrsJsonAny::integer(3));
     p->set("name", SrsJsonAny::str("srs"));
@@ -2762,7 +2820,7 @@ VOID TEST(ProtocolJSONTest, ObjectAPI)
 VOID TEST(ProtocolJSONTest, ArrayAPI)
 {
     SrsJsonArray* p = SrsJsonAny::array();
-    SrsAutoFree(SrsJsonArray, p);
+    SrsUniquePtr<SrsJsonArray> p_uptr(p);
 
     p->add(SrsJsonAny::integer(2019));
     p->add(SrsJsonAny::str("srs"));

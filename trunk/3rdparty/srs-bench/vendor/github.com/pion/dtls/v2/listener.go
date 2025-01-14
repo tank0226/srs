@@ -1,9 +1,14 @@
+// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
 package dtls
 
 import (
 	"net"
 
-	"github.com/pion/udp"
+	"github.com/pion/dtls/v2/pkg/protocol"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
+	"github.com/pion/transport/v2/udp"
 )
 
 // Listen creates a DTLS listener
@@ -14,15 +19,15 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, e
 
 	lc := udp.ListenConfig{
 		AcceptFilter: func(packet []byte) bool {
-			pkts, err := unpackDatagram(packet)
+			pkts, err := recordlayer.UnpackDatagram(packet)
 			if err != nil || len(pkts) < 1 {
 				return false
 			}
-			h := &recordLayerHeader{}
+			h := &recordlayer.Header{}
 			if err := h.Unmarshal(pkts[0]); err != nil {
 				return false
 			}
-			return h.contentType == contentTypeHandshake
+			return h.ContentType == protocol.ContentTypeHandshake
 		},
 	}
 	parent, err := lc.Listen(network, laddr)

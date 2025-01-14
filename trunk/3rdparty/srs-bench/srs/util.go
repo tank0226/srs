@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 //
-// Copyright (c) 2021 Winlin
+// # Copyright (c) 2025 Winlin
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the "Software"), to deal in
@@ -23,11 +23,24 @@ package srs
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	crand "crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"flag"
 	"fmt"
+	"github.com/ossrs/go-oryx-lib/amf0"
+	"github.com/ossrs/go-oryx-lib/avc"
+	"github.com/ossrs/go-oryx-lib/flv"
+	"github.com/ossrs/go-oryx-lib/rtmp"
+	"github.com/pion/ice/v2"
+	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
 	"io"
-	"io/ioutil"
+	"math/big"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,7 +57,7 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/logging"
 	"github.com/pion/rtcp"
-	"github.com/pion/transport/vnet"
+	"github.com/pion/transport/v2/vnet"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/h264reader"
 )
@@ -61,17 +74,21 @@ var srsDTLSDropPackets *int
 
 var srsSchema string
 var srsServer *string
+var srsHttpServer *string
 var srsStream *string
+var srsLiveStream *string
 var srsPublishAudio *string
 var srsPublishVideo *string
+var srsPublishAvatar *string
+var srsPublishBBB *string
 var srsVnetClientIP *string
 
-func prepareTest() error {
-	var err error
-
+func prepareTest() (err error) {
 	srsHttps = flag.Bool("srs-https", false, "Whther connect to HTTPS-API")
-	srsServer = flag.String("srs-server", "127.0.0.1", "The RTC server to connect to")
-	srsStream = flag.String("srs-stream", "/rtc/regression", "The RTC stream to play")
+	srsServer = flag.String("srs-server", "127.0.0.1", "The RTMP/RTC server to connect to")
+	srsHttpServer = flag.String("srs-http-server", "127.0.0.1:8080", "The HTTP server to connect to")
+	srsStream = flag.String("srs-stream", "/rtc/regression", "The RTC app/stream to play")
+	srsLiveStream = flag.String("srs-live-stream", "/live/livestream", "The LIVE app/stream to play")
 	srsLog = flag.Bool("srs-log", false, "Whether enable the detail log")
 	srsTimeout = flag.Int("srs-timeout", 5000, "For each case, the timeout in ms")
 	srsPlayPLI = flag.Int("srs-play-pli", 5000, "The PLI interval in seconds for player.")
@@ -79,6 +96,8 @@ func prepareTest() error {
 	srsPublishOKPackets = flag.Int("srs-publish-ok-packets", 3, "If send N RTP, recv N RTCP packets, it's ok, or fail")
 	srsPublishAudio = flag.String("srs-publish-audio", "avatar.ogg", "The audio file for publisher.")
 	srsPublishVideo = flag.String("srs-publish-video", "avatar.h264", "The video file for publisher.")
+	srsPublishAvatar = flag.String("srs-publish-avatar", "avatar.flv", "The avatar file for publisher.")
+	srsPublishBBB = flag.String("srs-publish-bbb", "bbb.flv", "The bbb file for publisher.")
 	srsPublishVideoFps = flag.Int("srs-publish-video-fps", 25, "The video fps for publisher.")
 	srsVnetClientIP = flag.String("srs-vnet-client-ip", "192.168.168.168", "The client ip in pion/vnet.")
 	srsDTLSDropPackets = flag.Int("srs-dtls-drop-packets", 5, "If dropped N packets, it's ok, or fail")
@@ -123,6 +142,14 @@ func prepareTest() error {
 		return err
 	}
 
+	if *srsPublishAvatar, err = tryOpenFile(*srsPublishAvatar); err != nil {
+		return err
+	}
+
+	if *srsPublishBBB, err = tryOpenFile(*srsPublishBBB); err != nil {
+		return err
+	}
+
 	if *srsPublishAudio, err = tryOpenFile(*srsPublishAudio); err != nil {
 		return err
 	}
@@ -130,6 +157,10 @@ func prepareTest() error {
 	return nil
 }
 
+// Request SRS RTC API, the apiPath like "/rtc/v1/play", the r is WebRTC url like
+// "webrtc://localhost/live/livestream", and the offer is SDP in string.
+//
+// Return the response of answer SDP in string.
 func apiRtcRequest(ctx context.Context, apiPath, r, offer string) (string, error) {
 	u, err := url.Parse(r)
 	if err != nil {
@@ -165,41 +196,18 @@ func apiRtcRequest(ctx context.Context, apiPath, r, offer string) (string, error
 		api, "", offer, r,
 	}
 
-	b, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", errors.Wrapf(err, "Marshal body %v", reqBody)
-	}
-	logger.If(ctx, "Request url api=%v with %v", api, string(b))
-	logger.Tf(ctx, "Request url api=%v with %v bytes", api, len(b))
-
-	req, err := http.NewRequest("POST", api, strings.NewReader(string(b)))
-	if err != nil {
-		return "", errors.Wrapf(err, "HTTP request %v", string(b))
-	}
-
-	res, err := http.DefaultClient.Do(req.WithContext(ctx))
-	if err != nil {
-		return "", errors.Wrapf(err, "Do HTTP request %v", string(b))
-	}
-
-	b2, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return "", errors.Wrapf(err, "Read response for %v", string(b))
-	}
-	logger.If(ctx, "Response from %v is %v", api, string(b2))
-	logger.Tf(ctx, "Response from %v is %v bytes", api, len(b2))
-
 	resBody := struct {
 		Code    int    `json:"code"`
 		Session string `json:"sessionid"`
 		SDP     string `json:"sdp"`
 	}{}
-	if err := json.Unmarshal(b2, &resBody); err != nil {
-		return "", errors.Wrapf(err, "Marshal %v", string(b2))
+
+	if err := apiRequest(ctx, api, reqBody, &resBody); err != nil {
+		return "", errors.Wrapf(err, "request api=%v", api)
 	}
 
 	if resBody.Code != 0 {
-		return "", errors.Errorf("Server fail code=%v %v", resBody.Code, string(b2))
+		return "", errors.Errorf("Server fail code=%v", resBody.Code)
 	}
 	logger.If(ctx, "Parse response to code=%v, session=%v, sdp=%v",
 		resBody.Code, resBody.Session, escapeSDP(resBody.SDP))
@@ -254,6 +262,11 @@ func (v *wallClock) Tick(d time.Duration) time.Duration {
 		return re
 	}
 	return 0
+}
+
+// Do nothing for SDP.
+func testUtilPassBy(s *webrtc.SessionDescription) error {
+	return nil
 }
 
 // Set to active, as DTLS client, to start ClientHello.
@@ -458,6 +471,13 @@ func (v dtlsHandshakeType) String() string {
 	}
 }
 
+func newChunkAll(c vnet.Chunk) ([]byte, *chunkMessageType, bool, *dtlsRecord, error) {
+	b := c.UserData()
+	chunk, parsed := newChunkMessageType(c)
+	record, err := newDTLSRecord(c.UserData())
+	return b, chunk, parsed, record, err
+}
+
 type chunkMessageType struct {
 	chunk     chunkType
 	content   dtlsContentType
@@ -570,6 +590,7 @@ func (v *dtlsRecord) Unmarshal(b []byte) error {
 	return nil
 }
 
+// The func to setup testWebRTCAPI
 type testWebRTCAPIOptionFunc func(api *testWebRTCAPI)
 
 type testWebRTCAPI struct {
@@ -577,8 +598,8 @@ type testWebRTCAPI struct {
 	options []testWebRTCAPIOptionFunc
 	// The api and settings.
 	api           *webrtc.API
-	mediaEngine   *webrtc.MediaEngine
 	registry      *interceptor.Registry
+	mediaEngine   *webrtc.MediaEngine
 	settingEngine *webrtc.SettingEngine
 	// The vnet router, can be shared by different apis, but we do not share it.
 	router *vnet.Router
@@ -588,24 +609,91 @@ type testWebRTCAPI struct {
 	proxy *vnet_proxy.UDPProxy
 }
 
-func newTestWebRTCAPI(options ...testWebRTCAPIOptionFunc) (*testWebRTCAPI, error) {
+// The func to initialize testWebRTCAPI
+type testWebRTCAPIInitFunc func(api *testWebRTCAPI) error
+
+// Implements interface testWebRTCAPIInitFunc to init testWebRTCAPI
+func registerDefaultCodecs(api *testWebRTCAPI) error {
+	v := api
+
+	if err := v.mediaEngine.RegisterDefaultCodecs(); err != nil {
+		return err
+	}
+
+	if err := webrtc.RegisterDefaultInterceptors(v.mediaEngine, v.registry); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Implements interface testWebRTCAPIInitFunc to init testWebRTCAPI
+func registerMiniCodecs(api *testWebRTCAPI) error {
+	v := api
+
+	if err := v.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{webrtc.MimeTypeOpus, 48000, 2, "minptime=10;useinbandfec=1", nil},
+		PayloadType:        111,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		return err
+	}
+
+	videoRTCPFeedback := []webrtc.RTCPFeedback{{"goog-remb", ""}, {"ccm", "fir"}, {"nack", ""}, {"nack", "pli"}}
+	if err := v.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", videoRTCPFeedback},
+		PayloadType:        108,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		return err
+	}
+
+	// Interceptors for NACK??? @see webrtc.ConfigureNack(v.mediaEngine, v.registry)
+	return nil
+}
+
+// Implements interface testWebRTCAPIInitFunc to init testWebRTCAPI
+func registerMiniCodecsWithoutNack(api *testWebRTCAPI) error {
+	v := api
+
+	if err := v.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{webrtc.MimeTypeOpus, 48000, 2, "minptime=10;useinbandfec=1", nil},
+		PayloadType:        111,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		return err
+	}
+
+	videoRTCPFeedback := []webrtc.RTCPFeedback{{"goog-remb", ""}, {"ccm", "fir"}}
+	if err := v.mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{webrtc.MimeTypeH264, 90000, 0, "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f", videoRTCPFeedback},
+		PayloadType:        108,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		return err
+	}
+
+	// Interceptors for NACK??? @see webrtc.ConfigureNack(v.mediaEngine, v.registry)
+	return nil
+}
+
+func newTestWebRTCAPI(inits ...testWebRTCAPIInitFunc) (*testWebRTCAPI, error) {
 	v := &testWebRTCAPI{}
 
-	v.mediaEngine = &webrtc.MediaEngine{}
-	if err := v.mediaEngine.RegisterDefaultCodecs(); err != nil {
-		return nil, err
-	}
-
 	v.registry = &interceptor.Registry{}
-	if err := webrtc.RegisterDefaultInterceptors(v.mediaEngine, v.registry); err != nil {
-		return nil, err
-	}
-
-	for _, setup := range options {
-		setup(v)
-	}
-
+	v.mediaEngine = &webrtc.MediaEngine{}
 	v.settingEngine = &webrtc.SettingEngine{}
+
+	// Disable the mDNS to suppress the error:
+	//		Failed to enable mDNS, continuing in mDNS disabled mode
+	v.settingEngine.SetICEMulticastDNSMode(ice.MulticastDNSModeDisabled)
+
+	// Apply an initialize filter, such as registering default codecs when creating a publisher/player.
+	for _, setup := range inits {
+		if setup == nil {
+			continue
+		}
+
+		if err := setup(v); err != nil {
+			return nil, err
+		}
+	}
 
 	return v, nil
 }
@@ -636,9 +724,12 @@ func (v *testWebRTCAPI) Setup(vnetClientIP string, options ...testWebRTCAPIOptio
 
 		// Each api should bind to a network, however, it's possible to share it
 		// for different apis.
-		v.network = vnet.NewNet(&vnet.NetConfig{
+		v.network, err = vnet.NewNet(&vnet.NetConfig{
 			StaticIP: vnetClientIP,
 		})
+		if err != nil {
+			return errors.Wrapf(err, "create network for api")
+		}
 
 		if err = v.router.AddNet(v.network); err != nil {
 			return errors.Wrapf(err, "create network for api")
@@ -657,10 +748,12 @@ func (v *testWebRTCAPI) Setup(vnetClientIP string, options ...testWebRTCAPIOptio
 		return err
 	}
 
+	// Apply options from params, for example, tester to register vnet filter.
 	for _, setup := range options {
 		setup(v)
 	}
 
+	// Apply options in api, for example, publisher register audio-level interceptor.
 	for _, setup := range v.options {
 		setup(v)
 	}
@@ -681,26 +774,29 @@ func (v *testWebRTCAPI) NewPeerConnection(configuration webrtc.Configuration) (*
 type testPlayerOptionFunc func(p *testPlayer) error
 
 type testPlayer struct {
-	pc        *webrtc.PeerConnection
-	receivers []*webrtc.RTPReceiver
+	onOffer        func(s *webrtc.SessionDescription) error
+	onAnswer       func(s *webrtc.SessionDescription) error
+	iceReadyCancel context.CancelFunc
+	pc             *webrtc.PeerConnection
+	receivers      []*webrtc.RTPReceiver
 	// We should dispose it.
 	api *testWebRTCAPI
 	// Optional suffix for stream url.
 	streamSuffix string
+	// Optional app/stream to play, use srsStream by default.
+	defaultStream string
 }
 
-func createApiForPlayer(play *testPlayer) error {
-	api, err := newTestWebRTCAPI()
-	if err != nil {
-		return err
-	}
-
-	play.api = api
-	return nil
-}
-
-func newTestPlayer(options ...testPlayerOptionFunc) (*testPlayer, error) {
+// Create test player, the init is used to initialize api which maybe nil,
+// and the options is used to setup the player itself.
+func newTestPlayer(init testWebRTCAPIInitFunc, options ...testPlayerOptionFunc) (*testPlayer, error) {
 	v := &testPlayer{}
+
+	api, err := newTestWebRTCAPI(init)
+	if err != nil {
+		return nil, err
+	}
+	v.api = api
 
 	for _, opt := range options {
 		if err := opt(v); err != nil {
@@ -733,6 +829,9 @@ func (v *testPlayer) Close() error {
 
 func (v *testPlayer) Run(ctx context.Context, cancel context.CancelFunc) error {
 	r := fmt.Sprintf("%v://%v%v", srsSchema, *srsServer, *srsStream)
+	if v.defaultStream != "" {
+		r = fmt.Sprintf("%v://%v%v", srsSchema, *srsServer, v.defaultStream)
+	}
 	if v.streamSuffix != "" {
 		r = fmt.Sprintf("%v-%v", r, v.streamSuffix)
 	}
@@ -765,22 +864,35 @@ func (v *testPlayer) Run(ctx context.Context, cancel context.CancelFunc) error {
 		return errors.Wrapf(err, "Set offer %v", offer)
 	}
 
-	answer, err := apiRtcRequest(ctx, "/rtc/v1/play", r, offer.SDP)
+	if v.onOffer != nil {
+		if err := v.onOffer(&offer); err != nil {
+			return errors.Wrapf(err, "sdp %v %v", offer.Type, offer.SDP)
+		}
+	}
+
+	answerSDP, err := apiRtcRequest(ctx, "/rtc/v1/play", r, offer.SDP)
 	if err != nil {
 		return errors.Wrapf(err, "Api request offer=%v", offer.SDP)
 	}
 
 	// Run a proxy for real server and vnet.
-	if address, err := parseAddressOfCandidate(answer); err != nil {
-		return errors.Wrapf(err, "parse address of %v", answer)
+	if address, err := parseAddressOfCandidate(answerSDP); err != nil {
+		return errors.Wrapf(err, "parse address of %v", answerSDP)
 	} else if err := v.api.proxy.Proxy(v.api.network, address); err != nil {
 		return errors.Wrapf(err, "proxy %v to %v", v.api.network, address)
 	}
 
-	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeAnswer, SDP: answer,
-	}); err != nil {
-		return errors.Wrapf(err, "Set answer %v", answer)
+	answer := &webrtc.SessionDescription{
+		Type: webrtc.SDPTypeAnswer, SDP: answerSDP,
+	}
+	if v.onAnswer != nil {
+		if err := v.onAnswer(answer); err != nil {
+			return errors.Wrapf(err, "on answerSDP")
+		}
+	}
+
+	if err := pc.SetRemoteDescription(*answer); err != nil {
+		return errors.Wrapf(err, "Set answerSDP %v", answerSDP)
 	}
 
 	handleTrack := func(ctx context.Context, track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) error {
@@ -824,8 +936,20 @@ func (v *testPlayer) Run(ctx context.Context, cancel context.CancelFunc) error {
 	})
 
 	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateClosed {
-			err = errors.Errorf("Close for ICE state %v", state)
+		logger.Tf(ctx, "ICE state %v", state)
+	})
+
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		logger.Tf(ctx, "PC state %v", state)
+
+		if state == webrtc.PeerConnectionStateConnected {
+			if v.iceReadyCancel != nil {
+				v.iceReadyCancel()
+			}
+		}
+
+		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+			err = errors.Errorf("Close for PC state %v", state)
 			cancel()
 		}
 	})
@@ -836,9 +960,88 @@ func (v *testPlayer) Run(ctx context.Context, cancel context.CancelFunc) error {
 
 type testPublisherOptionFunc func(p *testPublisher) error
 
+func createLargeRsaCertificate(p *testPublisher) error {
+	privateKey, err := rsa.GenerateKey(crand.Reader, 4096)
+	if err != nil {
+		return errors.Wrapf(err, "Generate key")
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Country:    []string{"CN"},
+			CommonName: "Pion WebRTC",
+		},
+		NotBefore: time.Now().Add(-24 * time.Hour),
+		NotAfter:  time.Now().Add(24 * time.Hour),
+		KeyUsage:  x509.KeyUsageDigitalSignature,
+	}
+
+	certificate, err := webrtc.NewCertificate(privateKey, template)
+	if err != nil {
+		return errors.Wrapf(err, "New certificate")
+	}
+
+	p.pcc.Certificates = []webrtc.Certificate{*certificate}
+
+	return nil
+}
+
+func createLargeEcdsaCertificate(p *testPublisher) error {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
+	if err != nil {
+		return errors.Wrapf(err, "Generate key")
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Country:            []string{"CN"},
+			Organization:       []string{"Example Majestic Mountain Meadows"},
+			OrganizationalUnit: []string{"Example Emerald Enchantment Forest"},
+			Locality:           []string{"Sunset Serenity Shores"},
+			Province:           []string{"Crystal Cove Lagoon"},
+			StreetAddress:      []string{"1234 Market St Whispering Willow Valley"},
+			PostalCode:         []string{"100010"},
+			CommonName:         "MediaSphere Solutions CreativeWave Media Pion WebRTC",
+		},
+		NotBefore:             time.Now().Add(-24 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		OCSPServer:            []string{"http://CreativeMediaPro.example.com"},
+		IssuingCertificateURL: []string{"http://DigitalVisionary.example.com/ca1.crt"},
+		DNSNames:              []string{"PixelStoryteller.example.com", "www.SkylineExplorer.example.com"},
+		EmailAddresses:        []string{"HarmonyVisuals@example.com"},
+		IPAddresses:           []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")},
+		URIs:                  []*url.URL{&url.URL{Scheme: "https", Host: "SunsetDreamer.example.com"}},
+		PermittedDNSDomains:   []string{".SerenityFilms.example.com", "EnchantedLens.example.net"},
+		CRLDistributionPoints: []string{"http://crl.example.com/ca1.crl"},
+	}
+
+	certificate, err := webrtc.NewCertificate(privateKey, template)
+	if err != nil {
+		return errors.Wrapf(err, "New certificate")
+	}
+
+	p.pcc.Certificates = []webrtc.Certificate{*certificate}
+
+	return nil
+}
+
 type testPublisher struct {
-	onOffer        func(s *webrtc.SessionDescription) error
-	onAnswer       func(s *webrtc.SessionDescription) error
+	// When got offer.
+	onOffer func(s *webrtc.SessionDescription) error
+	// When got answer.
+	onAnswer func(s *webrtc.SessionDescription) error
+	// Whether ignore any PC state error, for error scenario test.
+	ignorePCStateError bool
+	// When PC state change.
+	onPeerConnectionStateChange func(state webrtc.PeerConnectionState)
+	// Whether ignore any DTLS error, for error scenario test.
+	ignoreDTLSStateError bool
+	// When DTLS state change.
+	onDTLSStateChange func(state webrtc.DTLSTransportState)
+	// When ICE is ready.
 	iceReadyCancel context.CancelFunc
 	// internal objects
 	aIngester *audioIngester
@@ -850,22 +1053,24 @@ type testPublisher struct {
 	streamSuffix string
 	// To cancel the publisher, pass by Run.
 	cancel context.CancelFunc
+	// The config for peer connection.
+	pcc *webrtc.Configuration
 }
 
-func createApiForPublisher(pub *testPublisher) error {
-	api, err := newTestWebRTCAPI()
-	if err != nil {
-		return err
-	}
-
-	pub.api = api
-	return nil
-}
-
-func newTestPublisher(options ...testPublisherOptionFunc) (*testPublisher, error) {
+// Create test publisher, the init is used to initialize api which maybe nil,
+// and the options is used to setup the publisher itself.
+func newTestPublisher(init testWebRTCAPIInitFunc, options ...testPublisherOptionFunc) (*testPublisher, error) {
 	sourceVideo, sourceAudio := *srsPublishVideo, *srsPublishAudio
 
-	v := &testPublisher{}
+	v := &testPublisher{
+		pcc: &webrtc.Configuration{},
+	}
+
+	api, err := newTestWebRTCAPI(init)
+	if err != nil {
+		return nil, err
+	}
+	v.api = api
 
 	for _, opt := range options {
 		if err := opt(v); err != nil {
@@ -882,7 +1087,6 @@ func newTestPublisher(options ...testPublisherOptionFunc) (*testPublisher, error
 	}
 
 	// Setup the interceptors for packets.
-	api := v.api
 	api.options = append(api.options, func(api *testWebRTCAPI) {
 		// Filter for RTCP packets.
 		rtcpInterceptor := &rtcpInterceptor{}
@@ -892,14 +1096,14 @@ func newTestPublisher(options ...testPublisherOptionFunc) (*testPublisher, error
 		rtcpInterceptor.rtcpWriter = func(pkts []rtcp.Packet, attributes interceptor.Attributes) (int, error) {
 			return rtcpInterceptor.nextRTCPWriter.Write(pkts, attributes)
 		}
-		api.registry.Add(rtcpInterceptor)
+		api.registry.Add(&rtcpInteceptorFactory{rtcpInterceptor})
 
 		// Filter for ingesters.
 		if sourceAudio != "" {
-			api.registry.Add(v.aIngester.audioLevelInterceptor)
+			api.registry.Add(&rtpInteceptorFactory{v.aIngester.audioLevelInterceptor})
 		}
 		if sourceVideo != "" {
-			api.registry.Add(v.vIngester.markerInterceptor)
+			api.registry.Add(&rtpInteceptorFactory{v.vIngester.markerInterceptor})
 		}
 	})
 
@@ -948,7 +1152,7 @@ func (v *testPublisher) Run(ctx context.Context, cancel context.CancelFunc) erro
 	logger.Tf(ctx, "Run publish url=%v, audio=%v, video=%v, fps=%v",
 		r, sourceAudio, sourceVideo, fps)
 
-	pc, err := v.api.NewPeerConnection(webrtc.Configuration{})
+	pc, err := v.api.NewPeerConnection(*v.pcc)
 	if err != nil {
 		return errors.Wrapf(err, "Create PC")
 	}
@@ -1024,14 +1228,28 @@ func (v *testPublisher) Run(ctx context.Context, cancel context.CancelFunc) erro
 		logger.Tf(ctx, "Signaling state %v", state)
 	})
 
+	var finalErr error
 	if v.aIngester != nil {
 		v.aIngester.sAudioSender.Transport().OnStateChange(func(state webrtc.DTLSTransportState) {
+			if v.onDTLSStateChange != nil {
+				v.onDTLSStateChange(state)
+			}
 			logger.Tf(ctx, "DTLS state %v", state)
+
+			if state == webrtc.DTLSTransportStateFailed {
+				if !v.ignoreDTLSStateError {
+					finalErr = errors.Errorf("DTLS failed")
+				}
+				cancel()
+			}
 		})
 	}
 
 	pcDone, pcDoneCancel := context.WithCancel(context.Background())
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if v.onPeerConnectionStateChange != nil {
+			v.onPeerConnectionStateChange(state)
+		}
 		logger.Tf(ctx, "PC state %v", state)
 
 		if state == webrtc.PeerConnectionStateConnected {
@@ -1042,14 +1260,15 @@ func (v *testPublisher) Run(ctx context.Context, cancel context.CancelFunc) erro
 		}
 
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
-			err = errors.Errorf("Close for PC state %v", state)
+			if finalErr == nil && !v.ignorePCStateError {
+				finalErr = errors.Errorf("Close for PC state %v", state)
+			}
 			cancel()
 		}
 	})
 
 	// Wait for event from context or tracks.
 	var wg sync.WaitGroup
-	var finalErr error
 
 	wg.Add(1)
 	go func() {
@@ -1173,4 +1392,574 @@ func (v *testPublisher) Run(ctx context.Context, cancel context.CancelFunc) erro
 		return finalErr
 	}
 	return ctx.Err()
+}
+
+type RTMPClient struct {
+	rtmpUrl string
+
+	rtmpTcUrl     string
+	rtmpStream    string
+	rtmpUrlObject *url.URL
+
+	streamID int
+
+	conn  *net.TCPConn
+	proto *rtmp.Protocol
+}
+
+func (v *RTMPClient) Close() error {
+	if v.conn != nil {
+		v.conn.Close()
+	}
+	return nil
+}
+
+func (v *RTMPClient) connect(rtmpUrl string) error {
+	v.rtmpUrl = rtmpUrl
+
+	if index := strings.LastIndex(rtmpUrl, "/"); index <= 0 {
+		return fmt.Errorf("invalid url %v, index=%v", rtmpUrl, index)
+	} else {
+		v.rtmpTcUrl = rtmpUrl[0:index]
+		v.rtmpStream = rtmpUrl[index+1:]
+	}
+
+	// Parse RTMP url.
+	rtmpUrlObject, err := url.Parse(rtmpUrl)
+	if err != nil {
+		return err
+	}
+	v.rtmpUrlObject = rtmpUrlObject
+
+	port := rtmpUrlObject.Port()
+	if port == "" {
+		port = "1935"
+	}
+
+	// Connect to TCP server.
+	rtmpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%v:%v", rtmpUrlObject.Hostname(), port))
+	if err != nil {
+		return err
+	}
+
+	c, err := net.DialTCP("tcp4", nil, rtmpAddr)
+	if err != nil {
+		return err
+	}
+	v.conn = c
+
+	// RTMP Handshake with server.
+	hs := rtmp.NewHandshake(rand.New(rand.NewSource(time.Now().UnixNano())))
+	if err := hs.WriteC0S0(c); err != nil {
+		return err
+	}
+	if err := hs.WriteC1S1(c); err != nil {
+		return err
+	}
+
+	if _, err := hs.ReadC0S0(c); err != nil {
+		return err
+	}
+	s1, err := hs.ReadC1S1(c)
+	if err != nil {
+		return err
+	}
+	if _, err := hs.ReadC2S2(c); err != nil {
+		return err
+	}
+
+	if err := hs.WriteC2S2(c, s1); err != nil {
+		return err
+	}
+
+	// Connect to RTMP tcUrl.
+	p := rtmp.NewProtocol(v.conn)
+
+	pkt := rtmp.NewConnectAppPacket()
+	pkt.CommandObject.Set("tcUrl", amf0.NewString(v.rtmpTcUrl))
+	if err = p.WritePacket(pkt, 0); err != nil {
+		return err
+	}
+
+	res := rtmp.NewConnectAppResPacket(pkt.TransactionID)
+	if _, err := p.ExpectPacket(&res); err != nil {
+		return err
+	}
+	v.proto = p
+
+	return nil
+}
+
+func (v *RTMPClient) Publish(ctx context.Context, rtmpUrl string) error {
+	if err := v.connect(rtmpUrl); err != nil {
+		return err
+	}
+	p := v.proto
+
+	// Create RTMP stream.
+	if true {
+		pkt := rtmp.NewCreateStreamPacket()
+		if err := p.WritePacket(pkt, 0); err != nil {
+			return err
+		}
+
+		res := rtmp.NewCreateStreamResPacket(pkt.TransactionID)
+		if _, err := p.ExpectPacket(&res); err != nil {
+			return err
+		}
+		v.streamID = int(res.StreamID)
+	}
+
+	// Publish RTMP stream.
+	if true {
+		pkt := rtmp.NewPublishPacket()
+		pkt.StreamName = *amf0.NewString(v.rtmpStream)
+		if err := p.WritePacket(pkt, v.streamID); err != nil {
+			return err
+		}
+
+		res := rtmp.NewCallPacket()
+		if _, err := p.ExpectPacket(&res); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (v *RTMPClient) Play(ctx context.Context, rtmpUrl string) error {
+	if err := v.connect(rtmpUrl); err != nil {
+		return err
+	}
+	p := v.proto
+
+	// Create RTMP stream.
+	if true {
+		pkt := rtmp.NewCreateStreamPacket()
+		if err := p.WritePacket(pkt, 0); err != nil {
+			return err
+		}
+
+		res := rtmp.NewCreateStreamResPacket(pkt.TransactionID)
+		if _, err := p.ExpectPacket(&res); err != nil {
+			return err
+		}
+		v.streamID = int(res.StreamID)
+	}
+
+	// Play RTMP stream.
+	if true {
+		pkt := rtmp.NewPlayPacket()
+		pkt.StreamName = *amf0.NewString(v.rtmpStream)
+		if err := p.WritePacket(pkt, v.streamID); err != nil {
+			return err
+		}
+
+		res := rtmp.NewCallPacket()
+		if _, err := p.ExpectPacket(&res); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type RTMPPublisher struct {
+	client *RTMPClient
+	// Whether auto close transport when ingest done.
+	closeTransportWhenIngestDone bool
+	// Whether drop audio, set the hasAudio to false.
+	hasAudio bool
+	// Whether drop video, set the hasVideo to false.
+	hasVideo bool
+
+	onSendPacket func(m *rtmp.Message) error
+}
+
+func NewRTMPPublisher() *RTMPPublisher {
+	v := &RTMPPublisher{
+		client: &RTMPClient{},
+	}
+
+	// By default, set to on.
+	v.closeTransportWhenIngestDone = true
+	v.hasAudio, v.hasVideo = true, true
+
+	return v
+}
+
+func (v *RTMPPublisher) Close() error {
+	return v.client.Close()
+}
+
+func (v *RTMPPublisher) Publish(ctx context.Context, rtmpUrl string) error {
+	logger.Tf(ctx, "Publish %v", rtmpUrl)
+	return v.client.Publish(ctx, rtmpUrl)
+}
+
+func (v *RTMPPublisher) Ingest(ctx context.Context, flvInput string) error {
+	// If ctx is cancelled, close the RTMP transport.
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		if v.closeTransportWhenIngestDone {
+			v.Close()
+		}
+	}()
+
+	// Consume all packets.
+	logger.Tf(ctx, "Start to ingest %v", flvInput)
+	err := v.ingest(ctx, flvInput)
+	if err == io.EOF {
+		return nil
+	}
+	if ctx.Err() == context.Canceled {
+		return nil
+	}
+	return err
+}
+
+func (v *RTMPPublisher) ingest(ctx context.Context, flvInput string) error {
+	p := v.client
+
+	fs, err := os.Open(flvInput)
+	if err != nil {
+		return err
+	}
+	defer fs.Close()
+	logger.Tf(ctx, "Open input %v", flvInput)
+
+	demuxer, err := flv.NewDemuxer(fs)
+	if err != nil {
+		return err
+	}
+
+	if _, _, _, err = demuxer.ReadHeader(); err != nil {
+		return err
+	}
+
+	for {
+		tagType, tagSize, timestamp, err := demuxer.ReadTagHeader()
+		if err != nil {
+			return err
+		}
+
+		tag, err := demuxer.ReadTag(tagSize)
+		if err != nil {
+			return err
+		}
+
+		if tagType != flv.TagTypeVideo && tagType != flv.TagTypeAudio {
+			continue
+		}
+		if !v.hasAudio && tagType == flv.TagTypeAudio {
+			continue
+		}
+		if !v.hasVideo && tagType == flv.TagTypeVideo {
+			continue
+		}
+
+		m := rtmp.NewStreamMessage(p.streamID)
+		m.MessageType = rtmp.MessageType(tagType)
+		m.Timestamp = uint64(timestamp)
+		m.Payload = tag
+		if err = p.proto.WriteMessage(m); err != nil {
+			return err
+		}
+
+		if v.onSendPacket != nil {
+			if err = v.onSendPacket(m); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+type RTMPPlayer struct {
+	// Transport.
+	client *RTMPClient
+	// FLV packager.
+	videoPackager flv.VideoPackager
+
+	onRecvPacket func(m *rtmp.Message, a *flv.AudioFrame, v *flv.VideoFrame) error
+}
+
+func NewRTMPPlayer() *RTMPPlayer {
+	return &RTMPPlayer{
+		client: &RTMPClient{},
+	}
+}
+
+func (v *RTMPPlayer) Close() error {
+	return v.client.Close()
+}
+
+func (v *RTMPPlayer) Play(ctx context.Context, rtmpUrl string) error {
+	var err error
+	if v.videoPackager, err = flv.NewVideoPackager(); err != nil {
+		return err
+	}
+
+	return v.client.Play(ctx, rtmpUrl)
+}
+
+func (v *RTMPPlayer) Consume(ctx context.Context) error {
+	// If ctx is cancelled, close the RTMP transport.
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		v.Close()
+	}()
+
+	// Consume all packets.
+	err := v.consume()
+	if err == io.EOF {
+		return nil
+	}
+	if ctx.Err() == context.Canceled {
+		return nil
+	}
+	return err
+}
+
+func (v *RTMPPlayer) consume() error {
+	for {
+		res, err := v.client.proto.ExpectMessage(rtmp.MessageTypeVideo, rtmp.MessageTypeAudio)
+		if err != nil {
+			return err
+		}
+
+		if v.onRecvPacket != nil {
+			var audioFrame *flv.AudioFrame
+			var videoFrame *flv.VideoFrame
+			if res.MessageType == rtmp.MessageTypeVideo {
+				if videoFrame, err = v.videoPackager.Decode(res.Payload); err != nil {
+					return err
+				}
+			}
+
+			if err := v.onRecvPacket(res, audioFrame, videoFrame); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+type FLVPlayer struct {
+	flvUrl string
+	client *http.Client
+	resp   *http.Response
+	f      flv.Demuxer
+
+	onRecvHeader func(hasAudio, hasVideo bool) error
+	onRecvTag    func(tp flv.TagType, size, ts uint32, tag []byte) error
+}
+
+func NewFLVPlayer() *FLVPlayer {
+	return &FLVPlayer{
+		client: &http.Client{}, resp: nil, f: nil, onRecvHeader: nil, onRecvTag: nil,
+	}
+}
+
+func (v *FLVPlayer) Close() error {
+	if v.f != nil {
+		v.f.Close()
+	}
+	if v.resp != nil {
+		v.resp.Body.Close()
+	}
+	return nil
+}
+
+func (v *FLVPlayer) Play(ctx context.Context, flvUrl string) error {
+	v.flvUrl = flvUrl
+	return nil
+}
+
+func (v *FLVPlayer) Consume(ctx context.Context) error {
+	// If ctx is cancelled, close the RTMP transport.
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		v.Close()
+	}()
+
+	// Start to play.
+	if err := v.play(ctx, v.flvUrl); err != nil {
+		return err
+	}
+
+	// Consume all packets.
+	err := v.consume(ctx)
+	if err == io.EOF {
+		return nil
+	}
+	if ctx.Err() == context.Canceled {
+		return nil
+	}
+	return err
+}
+
+func (v *FLVPlayer) play(ctx context.Context, flvUrl string) error {
+	logger.Tf(ctx, "Run play flv url=%v", flvUrl)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", flvUrl, nil)
+	if err != nil {
+		return errors.Wrapf(err, "New request for flv %v failed, err=%v", flvUrl, err)
+	}
+
+	resp, err := v.client.Do(req)
+	if err != nil {
+		return errors.Wrapf(err, "Http get flv %v failed, err=%v", flvUrl, err)
+	}
+	logger.Tf(ctx, "Connected to %v", flvUrl)
+
+	if v.resp != nil {
+		v.resp.Body.Close()
+	}
+	v.resp = resp
+
+	f, err := flv.NewDemuxer(resp.Body)
+	if err != nil {
+		return errors.Wrapf(err, "Create flv demuxer for %v failed, err=%v", flvUrl, err)
+	}
+
+	if v.f != nil {
+		v.f.Close()
+	}
+	v.f = f
+
+	return nil
+}
+
+func (v *FLVPlayer) consume(ctx context.Context) (err error) {
+	var hasVideo, hasAudio bool
+	if _, hasVideo, hasAudio, err = v.f.ReadHeader(); err != nil {
+		return errors.Wrapf(err, "Flv demuxer read header failed, err=%v", err)
+	}
+	logger.Tf(ctx, "Got audio=%v, video=%v", hasAudio, hasVideo)
+
+	if v.onRecvHeader != nil {
+		if err := v.onRecvHeader(hasAudio, hasVideo); err != nil {
+			return errors.Wrapf(err, "Callback FLV header audio=%v, video=%v", hasAudio, hasVideo)
+		}
+	}
+
+	for {
+		var tagType flv.TagType
+		var tagSize, timestamp uint32
+		if tagType, tagSize, timestamp, err = v.f.ReadTagHeader(); err != nil {
+			return errors.Wrapf(err, "Flv demuxer read tag header failed, err=%v", err)
+		}
+
+		var tag []byte
+		if tag, err = v.f.ReadTag(tagSize); err != nil {
+			return errors.Wrapf(err, "Flv demuxer read tag failed, err=%v", err)
+		}
+
+		if v.onRecvTag != nil {
+			if err := v.onRecvTag(tagType, tagSize, timestamp, tag); err != nil {
+				return errors.Wrapf(err, "Callback tag type=%v, size=%v, ts=%v, tag=%vB", tagType, tagSize, timestamp, len(tag))
+			}
+		}
+	}
+}
+
+func IsAvccrEquals(a, b *avc.AVCDecoderConfigurationRecord) bool {
+	if a == nil || b == nil {
+		return false
+	}
+
+	if a.AVCLevelIndication != b.AVCLevelIndication ||
+		a.AVCProfileIndication != b.AVCProfileIndication ||
+		a.LengthSizeMinusOne != b.LengthSizeMinusOne ||
+		len(a.SequenceParameterSetNALUnits) != len(b.SequenceParameterSetNALUnits) ||
+		len(a.PictureParameterSetNALUnits) != len(b.PictureParameterSetNALUnits) {
+		return false
+	}
+
+	for i := 0; i < len(a.SequenceParameterSetNALUnits); i++ {
+		if !IsNALUEquals(a.SequenceParameterSetNALUnits[i], b.SequenceParameterSetNALUnits[i]) {
+			return false
+		}
+	}
+
+	for i := 0; i < len(a.PictureParameterSetNALUnits); i++ {
+		if !IsNALUEquals(a.PictureParameterSetNALUnits[i], b.PictureParameterSetNALUnits[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func IsNALUEquals(a, b *avc.NALU) bool {
+	if a == nil || b == nil {
+		return false
+	}
+
+	if a.NALUType != b.NALUType || a.NALRefIDC != b.NALRefIDC {
+		return false
+	}
+
+	return bytes.Equal(a.Data, b.Data)
+}
+
+func DemuxRtpSpsPps(payload []byte) ([]byte, []*avc.NALU, error) {
+	// Parse RTP packet.
+	pkt := rtp.Packet{}
+	if err := pkt.Unmarshal(payload); err != nil {
+		return nil, nil, err
+	}
+
+	// Decode H264 packet.
+	h264Packet := codecs.H264Packet{}
+	annexb, err := h264Packet.Unmarshal(pkt.Payload)
+	if err != nil {
+		return annexb, nil, err
+	}
+
+	// Ignore if not STAP-A
+	if !bytes.HasPrefix(annexb, []byte{0x00, 0x00, 0x00, 0x01}) {
+		return annexb, nil, err
+	}
+
+	// Parse to NALUs
+	rawNalus := bytes.Split(annexb, []byte{0x00, 0x00, 0x00, 0x01})
+
+	nalus := []*avc.NALU{}
+	for _, rawNalu := range rawNalus {
+		if len(rawNalu) == 0 {
+			continue
+		}
+
+		nalu := avc.NewNALU()
+		if err := nalu.UnmarshalBinary(rawNalu); err != nil {
+			return annexb, nil, err
+		}
+
+		nalus = append(nalus, nalu)
+	}
+
+	return annexb, nalus, nil
 }

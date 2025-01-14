@@ -1,35 +1,20 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #include <srs_core.hpp>
 
 #include <srs_kernel_error.hpp>
-#include <srs_service_log.hpp>
+#include <srs_protocol_log.hpp>
 #include <srs_kernel_mp4.hpp>
 #include <srs_kernel_file.hpp>
 #include <srs_kernel_stream.hpp>
 #include <srs_core_autofree.hpp>
 #include <srs_app_config.hpp>
+#include <srs_protocol_kbps.hpp>
+#include <srs_core_deprecated.hpp>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +32,14 @@ SrsConfig* _srs_config = new SrsConfig();
 // @global Other variables.
 bool _srs_in_docker = false;
 
+// Whether setup config by environment variables, see https://github.com/ossrs/srs/issues/2277
+bool _srs_config_by_env = false;
+
+// The binary name of SRS.
+const char* _srs_binary = NULL;
+
+extern SrsPps* _srs_pps_cids_get;
+
 srs_error_t parse(std::string mp4_file, bool verbose)
 {
     srs_error_t err = srs_success;
@@ -62,30 +55,28 @@ srs_error_t parse(std::string mp4_file, bool verbose)
         return srs_error_wrap(err, "open box reader");
     }
     srs_trace("MP4 box reader open success");
-    
-    SrsSimpleStream* stream = new SrsSimpleStream();
-    SrsAutoFree(SrsSimpleStream, stream);
-    
+
+    SrsUniquePtr<SrsSimpleStream> stream(new SrsSimpleStream());
+
     fprintf(stderr, "\n%s\n", mp4_file.c_str());
     while (true) {
         SrsMp4Box* box = NULL;
+        // Note that we should use SrsAutoFree to free the ptr which is set later.
         SrsAutoFree(SrsMp4Box, box);
         
-        if ((err = br.read(stream, &box)) != srs_success) {
+        if ((err = br.read(stream.get(), &box)) != srs_success) {
             if (srs_error_code(err) == ERROR_SYSTEM_FILE_EOF) {
                 fprintf(stderr, "\n");
             }
             return srs_error_wrap(err, "read box");
         }
-        
-        SrsBuffer* buffer = new SrsBuffer(stream->bytes(), stream->length());
-        SrsAutoFree(SrsBuffer, buffer);
-        
-        if ((err = box->decode(buffer)) != srs_success) {
+
+        SrsUniquePtr<SrsBuffer> buffer(new SrsBuffer(stream->bytes(), stream->length()));
+        if ((err = box->decode(buffer.get())) != srs_success) {
             return srs_error_wrap(err, "decode box");
         }
         
-        if ((err = br.skip(box, stream)) != srs_success) {
+        if ((err = br.skip(box, stream.get())) != srs_success) {
             return srs_error_wrap(err, "skip box");
         }
         
@@ -102,8 +93,12 @@ srs_error_t parse(std::string mp4_file, bool verbose)
 
 int main(int argc, char** argv)
 {
+    _srs_pps_cids_get = new SrsPps();
+
     printf("SRS MP4 parser/%d.%d.%d, parse and show the mp4 boxes structure.\n",
            VERSION_MAJOR, VERSION_MINOR, VERSION_REVISION);
+
+    _srs_binary = argv[0];
     
     if (argc < 2) {
         printf("Usage: %s <mp4_file> [verbose]\n"

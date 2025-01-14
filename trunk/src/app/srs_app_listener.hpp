@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_LISTENER_HPP
 #define SRS_APP_LISTENER_HPP
@@ -31,6 +14,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #include <srs_app_st.hpp>
 
@@ -38,6 +22,7 @@ struct sockaddr;
 
 class SrsBuffer;
 class SrsUdpMuxSocket;
+class ISrsListener;
 
 // The udp packet handler.
 class ISrsUdpHandler
@@ -45,12 +30,6 @@ class ISrsUdpHandler
 public:
     ISrsUdpHandler();
     virtual ~ISrsUdpHandler();
-public:
-    // When fd changed, for instance, reload the listen port,
-    // notify the handler and user can do something.
-    virtual srs_error_t on_stfd_change(srs_netfd_t fd);
-    
-    virtual void set_stfd(srs_netfd_t fd);
 public:
     // When udp listener got a udp packet, notice server to process it.
     // @param type, the client type, used to create concrete connection,
@@ -62,15 +41,24 @@ public:
     virtual srs_error_t on_udp_packet(const sockaddr* from, const int fromlen, char* buf, int nb_buf) = 0;
 };
 
-// TODO: FIXME: Add comments?
+// The UDP packet handler. TODO: FIXME: Merge with ISrsUdpHandler
 class ISrsUdpMuxHandler
 {
 public:
     ISrsUdpMuxHandler();
     virtual ~ISrsUdpMuxHandler();
 public:
-    virtual srs_error_t on_stfd_change(srs_netfd_t fd);
     virtual srs_error_t on_udp_packet(SrsUdpMuxSocket* skt) = 0;
+};
+
+// All listener should support listen method.
+class ISrsListener
+{
+public:
+    ISrsListener();
+    virtual ~ISrsListener();
+public:
+    virtual srs_error_t listen() = 0;
 };
 
 // The tcp connection handler.
@@ -81,13 +69,14 @@ public:
     virtual ~ISrsTcpHandler();
 public:
     // When got tcp client.
-    virtual srs_error_t on_tcp_client(srs_netfd_t stfd) = 0;
+    virtual srs_error_t on_tcp_client(ISrsListener* listener, srs_netfd_t stfd) = 0;
 };
 
 // Bind udp port, start thread to recv packet and handler it.
 class SrsUdpListener : public ISrsCoroutineHandler
 {
 protected:
+    std::string label_;
     srs_netfd_t lfd;
     SrsCoroutine* trd;
 protected:
@@ -98,40 +87,69 @@ protected:
     std::string ip;
     int port;
 public:
-    SrsUdpListener(ISrsUdpHandler* h, std::string i, int p);
+    SrsUdpListener(ISrsUdpHandler* h);
     virtual ~SrsUdpListener();
 public:
+    SrsUdpListener* set_label(const std::string& label);
+    SrsUdpListener* set_endpoint(const std::string& i, int p);
+private:
     virtual int fd();
     virtual srs_netfd_t stfd();
 private:
     void set_socket_buffer();
 public:
     virtual srs_error_t listen();
+    void close();
 // Interface ISrsReusableThreadHandler.
 public:
     virtual srs_error_t cycle();
 };
 
 // Bind and listen tcp port, use handler to process the client.
-class SrsTcpListener : public ISrsCoroutineHandler
+class SrsTcpListener : public ISrsCoroutineHandler, public ISrsListener
 {
 private:
+    std::string label_;
     srs_netfd_t lfd;
     SrsCoroutine* trd;
 private:
     ISrsTcpHandler* handler;
     std::string ip;
-    int port;
+    int port_;
 public:
-    SrsTcpListener(ISrsTcpHandler* h, std::string i, int p);
+    SrsTcpListener(ISrsTcpHandler* h);
     virtual ~SrsTcpListener();
 public:
-    virtual int fd();
+    SrsTcpListener* set_label(const std::string& label);
+    SrsTcpListener* set_endpoint(const std::string& i, int p);
+    SrsTcpListener* set_endpoint(const std::string& endpoint);
+    int port();
 public:
     virtual srs_error_t listen();
+    void close();
 // Interface ISrsReusableThreadHandler.
 public:
     virtual srs_error_t cycle();
+};
+
+// Bind and listen tcp port, use handler to process the client.
+class SrsMultipleTcpListeners : public ISrsListener, public ISrsTcpHandler
+{
+private:
+    ISrsTcpHandler* handler_;
+    std::vector<SrsTcpListener*> listeners_;
+public:
+    SrsMultipleTcpListeners(ISrsTcpHandler* h);
+    virtual ~SrsMultipleTcpListeners();
+public:
+    SrsMultipleTcpListeners* set_label(const std::string& label);
+    SrsMultipleTcpListeners* add(const std::vector<std::string>& endpoints);
+public:
+    srs_error_t listen();
+    void close();
+// Interface ISrsTcpHandler
+public:
+    virtual srs_error_t on_tcp_client(ISrsListener* listener, srs_netfd_t stfd);
 };
 
 // TODO: FIXME: Rename it. Refine it for performance issue.

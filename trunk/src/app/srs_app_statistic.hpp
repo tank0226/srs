@@ -1,25 +1,8 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2021 Winlin
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+//
+// Copyright (c) 2013-2025 The SRS Authors
+//
+// SPDX-License-Identifier: MIT
+//
 
 #ifndef SRS_APP_STATISTIC_HPP
 #define SRS_APP_STATISTIC_HPP
@@ -29,9 +12,10 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <sstream>
 
 #include <srs_kernel_codec.hpp>
-#include <srs_rtmp_stack.hpp>
+#include <srs_protocol_rtmp_stack.hpp>
 
 class SrsKbps;
 class SrsWallClock;
@@ -40,6 +24,9 @@ class ISrsExpire;
 class SrsJsonObject;
 class SrsJsonArray;
 class ISrsKbpsDelta;
+class SrsClsSugar;
+class SrsClsSugars;
+class SrsPps;
 
 struct SrsStatisticVhost
 {
@@ -51,7 +38,6 @@ public:
 public:
     // The vhost total kbps.
     SrsKbps* kbps;
-    SrsWallClock* clk;
 public:
     SrsStatisticVhost();
     virtual ~SrsStatisticVhost();
@@ -67,14 +53,16 @@ public:
     std::string app;
     std::string stream;
     std::string url;
+    std::string tcUrl;
     bool active;
-    SrsContextId connection_cid;
+    // The publisher connection id.
+    std::string publisher_id;
     int nb_clients;
-    uint64_t nb_frames;
 public:
     // The stream total kbps.
     SrsKbps* kbps;
-    SrsWallClock* clk;
+    // The fps of stream.
+    SrsPps* frames;
 public:
     bool has_video;
     SrsVideoCodecId vcodec;
@@ -82,6 +70,12 @@ public:
     SrsAvcProfile avc_profile;
     // The level_idc, ISO_IEC_14496-10-AVC-2003.pdf, page 45.
     SrsAvcLevel avc_level;
+#ifdef SRS_H265
+    // The profile_idc, ITU-T-H.265-2021.pdf, page 62.
+    SrsHevcProfile hevc_profile;
+    // The level_idc, ITU-T-H.265-2021.pdf, page 63.
+    SrsHevcLevel hevc_level;
+#endif
     // The width and height in codec info.
     int width;
     int height;
@@ -101,8 +95,8 @@ public:
 public:
     virtual srs_error_t dumps(SrsJsonObject* obj);
 public:
-    // Publish the stream.
-    virtual void publish(SrsContextId cid);
+    // Publish the stream, id is the publisher.
+    virtual void publish(std::string id);
     // Close the stream.
     virtual void close();
 };
@@ -110,12 +104,17 @@ public:
 struct SrsStatisticClient
 {
 public:
+    // For HTTP-API to kickoff this connection by expiring it.
     ISrsExpire* conn;
+public:
     SrsStatisticStream* stream;
     SrsRequest* req;
     SrsRtmpConnType type;
     std::string id;
     srs_utime_t create;
+public:
+    // The stream total kbps.
+    SrsKbps* kbps;
 public:
     SrsStatisticClient();
     virtual ~SrsStatisticClient();
@@ -123,33 +122,16 @@ public:
     virtual srs_error_t dumps(SrsJsonObject* obj);
 };
 
-class SrsStatisticCategory
-{
-public:
-    uint64_t nn;
-public:
-    uint64_t a;
-    uint64_t b;
-    uint64_t c;
-    uint64_t d;
-    uint64_t e;
-public:
-    uint64_t f;
-    uint64_t g;
-    uint64_t h;
-    uint64_t i;
-    uint64_t j;
-public:
-    SrsStatisticCategory();
-    virtual ~SrsStatisticCategory();
-};
-
-class SrsStatistic : public ISrsProtocolPerf
+class SrsStatistic
 {
 private:
     static SrsStatistic *_instance;
     // The id to identify the sever.
-    std::string _server_id;
+    std::string server_id_;
+    // The id to identify the service.
+    std::string service_id_;
+    // The pid to identify the service process.
+    std::string service_pid_;
 private:
     // The key: vhost id, value: vhost object.
     std::map<std::string, SrsStatisticVhost*> vhosts;
@@ -167,13 +149,11 @@ private:
     std::map<std::string, SrsStatisticClient*> clients;
     // The server total kbps.
     SrsKbps* kbps;
-    SrsWallClock* clk;
-    // The perf stat for mw(merged write).
-    SrsStatisticCategory* perf_iovs;
-    SrsStatisticCategory* perf_msgs;
-    SrsStatisticCategory* perf_rtp;
-    SrsStatisticCategory* perf_rtc;
-    SrsStatisticCategory* perf_bytes;
+private:
+    // The total of clients connections.
+    int64_t nb_clients_;
+    // The total of clients errors.
+    int64_t nb_errs_;
 private:
     SrsStatistic();
     virtual ~SrsStatistic();
@@ -183,11 +163,11 @@ public:
     virtual SrsStatisticVhost* find_vhost_by_id(std::string vid);
     virtual SrsStatisticVhost* find_vhost_by_name(std::string name);
     virtual SrsStatisticStream* find_stream(std::string sid);
+    virtual SrsStatisticStream* find_stream_by_url(std::string url);
     virtual SrsStatisticClient* find_client(std::string client_id);
 public:
     // When got video info for stream.
-    virtual srs_error_t on_video_info(SrsRequest* req, SrsVideoCodecId vcodec, SrsAvcProfile avc_profile,
-        SrsAvcLevel avc_level, int width, int height);
+    virtual srs_error_t on_video_info(SrsRequest* req, SrsVideoCodecId vcodec, int avc_profile, int avc_level, int width, int height);
     // When got audio info for stream.
     virtual srs_error_t on_audio_info(SrsRequest* req, SrsAudioCodecId acodec, SrsAudioSampleRate asample_rate,
         SrsAudioChannels asound_type, SrsAacObjectType aac_object);
@@ -196,8 +176,8 @@ public:
     virtual srs_error_t on_video_frames(SrsRequest* req, int nb_frames);
     // When publish stream.
     // @param req the request object of publish connection.
-    // @param cid the cid of publish connection.
-    virtual void on_stream_publish(SrsRequest* req, SrsContextId cid);
+    // @param publisher_id The id of publish connection.
+    virtual void on_stream_publish(SrsRequest* req, std::string publisher_id);
     // When close stream.
     virtual void on_stream_close(SrsRequest* req);
 public:
@@ -206,64 +186,56 @@ public:
     // @param req, the client request object.
     // @param conn, the physical absract connection object.
     // @param type, the type of connection.
-    // TODO: FIXME: We should not use context id as client id.
-    virtual srs_error_t on_client(SrsContextId id, SrsRequest* req, ISrsExpire* conn, SrsRtmpConnType type);
+    virtual srs_error_t on_client(std::string id, SrsRequest* req, ISrsExpire* conn, SrsRtmpConnType type);
     // Client disconnect
     // @remark the on_disconnect always call, while the on_client is call when
     //      only got the request object, so the client specified by id maybe not
     //      exists in stat.
-    // TODO: FIXME: We should not use context id as client id.
-    virtual void on_disconnect(const SrsContextId& id);
+    virtual void on_disconnect(std::string id, srs_error_t err);
+private:
+    // Cleanup the stream if stream is not active and for the last client.
+    void cleanup_stream(SrsStatisticStream* stream);
+public:
     // Sample the kbps, add delta bytes of conn.
     // Use kbps_sample() to get all result of kbps stat.
-    virtual void kbps_add_delta(const SrsContextId& cid, ISrsKbpsDelta* delta);
+    virtual void kbps_add_delta(std::string id, ISrsKbpsDelta* delta);
     // Calc the result for all kbps.
-    // @return the server kbps.
-    virtual SrsKbps* kbps_sample();
+    virtual void kbps_sample();
 public:
     // Get the server id, used to identify the server.
     // For example, when restart, the server id must changed.
     virtual std::string server_id();
+    // Get the service id, used to identify the restart of service.
+    virtual std::string service_id();
+    // Get the service pid, used to identify the service process.
+    virtual std::string service_pid();
     // Dumps the vhosts to amf0 array.
     virtual srs_error_t dumps_vhosts(SrsJsonArray* arr);
     // Dumps the streams to amf0 array.
-    virtual srs_error_t dumps_streams(SrsJsonArray* arr);
+    // @param start the start index, from 0.
+    // @param count the max count of streams to dump.
+    virtual srs_error_t dumps_streams(SrsJsonArray* arr, int start, int count);
     // Dumps the clients to amf0 array
     // @param start the start index, from 0.
     // @param count the max count of clients to dump.
     virtual srs_error_t dumps_clients(SrsJsonArray* arr, int start, int count);
+    // Dumps the hints about SRS server.
+    void dumps_hints_kv(std::stringstream & ss);
+#ifdef SRS_APM
 public:
-    // Stat for packets merged written, nb_msgs is the number of RTMP messages.
-    // For example, publish by FFMPEG, Audio and Video frames.
-    virtual void perf_on_msgs(int nb_msgs);
-    virtual srs_error_t dumps_perf_msgs(SrsJsonObject* obj);
-public:
-    // Stat for packets merged written, nb_packets is the number of RTC packets.
-    // For example, a RTMP/AAC audio packet maybe transcoded to two RTC/opus packets.
-    virtual void perf_on_rtc_packets(int nb_packets);
-    virtual srs_error_t dumps_perf_rtc_packets(SrsJsonObject* obj);
-public:
-    // Stat for packets merged written, nb_packets is the number of RTP packets.
-    // For example, a RTC/opus packet maybe package to three RTP packets.
-    virtual void perf_on_rtp_packets(int nb_packets);
-    virtual srs_error_t dumps_perf_rtp_packets(SrsJsonObject* obj);
-public:
-    // Stat for TCP writev, nb_iovs is the total number of iovec.
-    virtual void perf_on_writev_iovs(int nb_iovs);
-    virtual srs_error_t dumps_perf_writev_iovs(SrsJsonObject* obj);
-public:
-    // Stat for bytes, nn_bytes is the size of bytes, nb_padding is padding bytes.
-    virtual void perf_on_rtc_bytes(int nn_bytes, int nn_rtp_bytes, int nn_padding);
-    virtual srs_error_t dumps_perf_bytes(SrsJsonObject* obj);
-public:
-    // Reset all perf stat data.
-    virtual void reset_perf();
-private:
-    virtual void perf_on_packets(SrsStatisticCategory* p, int nb_msgs);
-    virtual srs_error_t dumps_perf(SrsStatisticCategory* p, SrsJsonObject* obj);
+    // Dumps the CLS summary.
+    void dumps_cls_summaries(SrsClsSugar* sugar);
+    void dumps_cls_streams(SrsClsSugars* sugars);
+#endif
 private:
     virtual SrsStatisticVhost* create_vhost(SrsRequest* req);
     virtual SrsStatisticStream* create_stream(SrsStatisticVhost* vhost, SrsRequest* req);
+public:
+    // Dumps exporter metrics.
+    virtual srs_error_t dumps_metrics(int64_t& send_bytes, int64_t& recv_bytes, int64_t& nstreams, int64_t& nclients, int64_t& total_nclients, int64_t& nerrs);
 };
+
+// Generate a random string id, with constant prefix.
+extern std::string srs_generate_stat_vid();
 
 #endif
